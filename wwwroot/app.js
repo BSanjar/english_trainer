@@ -162,6 +162,34 @@ async function startApp(){
   window.addEventListener('hashchange', route);
   if(!location.hash) location.hash = 'home';
   route();
+  renderHelpButton();
+  if(!localStorage.getItem('lexi_onboarding_seen')) showHelpModal(true);
+}
+
+const HELP_KEY = 'lexi_onboarding_seen';
+function renderHelpButton(){
+  if(document.getElementById('help-btn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'help-btn';
+  btn.className = 'help-fab';
+  btn.innerHTML = '?';
+  btn.onclick = ()=>showHelpModal(false);
+  document.body.appendChild(btn);
+}
+function showHelpModal(firstTime){
+  localStorage.setItem(HELP_KEY, '1');
+  document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card">
+    <div class="modal-top"><div class="onboard-title" style="font-size:22px;text-align:left;">${firstTime?'Добро пожаловать!':'Как пользоваться Lexi'}</div>
+      <button class="icon-btn" onclick="closeModal()">${ICONS.close}</button></div>
+    <div class="help-list">
+      <div class="help-item"><div class="help-num">1</div><div><b>6 задач в день</b> — Изучение слов, Квиз, Введи слово, Заполни пропуск, Аудирование, Произношение. Открываются с экрана «Задачи».</div></div>
+      <div class="help-item"><div class="help-num">2</div><div><b>Карточки слов:</b> тапни — увидишь перевод и пример; свайпни вверх — «знаю»/«запомнил»; свайпни вниз — «трудно».</div></div>
+      <div class="help-item"><div class="help-num">3</div><div>У каждой задачи своя цель на день — прогресс-бар. Проходи в любом порядке, повторы не ограничены.</div></div>
+      <div class="help-item"><div class="help-num">4</div><div>Слова уровня и статистика — в <b>Настройках</b>, в разделе «Категории».</div></div>
+      <div class="help-item"><div class="help-num">5</div><div>Кнопка <b>«?»</b> в углу экрана — это окно, если понадобится ещё раз.</div></div>
+    </div>
+    <button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="closeModal()">Понятно${firstTime?', начать':''}</button>
+  </div></div>`;
 }
 
 const NAV = [
@@ -222,8 +250,12 @@ function todayChipsHtml(today){
   }).join('')}</div>`;
 }
 async function renderHome(el){
+  if(state.today) paintHome(el, state.today);
   const today = await api('/api/session/today');
   state.today = today;
+  if(currentViewId()==='home') paintHome(el, today);
+}
+function paintHome(el, today){
   const mastered = state.words.filter(w=>w.status==='mastered').length;
   const inProgress = state.words.filter(w=>w.status!=='new').length;
   const remaining = state.words.length - inProgress;
@@ -281,11 +313,12 @@ async function renderHome(el){
 function blockGridHtml(today){
   const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
   return `<div class="block-grid">
-    ${BLOCKS.map(b=>{
+    ${BLOCKS.map((b,idx)=>{
       const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
       const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
       const done = pct>=100;
       return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
+        <div class="block-num">${idx+1}</div>
         <div class="block-ic">${b.ic}</div>
         <div class="block-body">
           <div class="block-title">${b.title}${done?' ✓':''}</div>
@@ -300,15 +333,25 @@ function blockGridHtml(today){
   </div>`;
 }
 async function renderBlocks(el){
+  if(state.today) paintBlocks(el, state.today);
   const today = await api('/api/session/today');
   state.today = today;
+  if(currentViewId()==='blocks') paintBlocks(el, today);
+}
+function paintBlocks(el, today){
   const overallPct = today.totalTarget>0 ? Math.min(100, Math.round(100*today.totalCompleted/today.totalTarget)) : 0;
+  const learnBlock = today.blocks.find(b=>b.block==='learn') || {completed:0, target:state.client.dailyGoal};
+  const startedLearn = learnBlock.completed>0;
 
   el.innerHTML = `
     <div class="page-head"><div><div class="page-title">Задачи на сегодня</div><div class="page-sub">Заполни прогресс-бар в каждом блоке</div></div></div>
-    <div class="card overall-progress">
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--ink-muted);"><span>Общий прогресс</span><span>${overallPct}%</span></div>
+    <div class="tasks-cta">
+      <button class="btn btn-primary" onclick="openBlock('learn')">${startedLearn ? 'Продолжить изучение слов ('+learnBlock.completed+'/'+learnBlock.target+')' : 'Начать — изучение слов'} →</button>
+    </div>
+    <div class="overall-progress-strip">
+      <span class="ops-label">Общий прогресс за сегодня</span>
       <div class="bar-track"><div class="bar-fill" style="width:${overallPct}%"></div></div>
+      <span class="ops-pct">${overallPct}%</span>
     </div>
     ${blockGridHtml(today)}
   `;
@@ -421,12 +464,13 @@ async function renderLearnSession(el){
           <div class="flash-word">${escapeHtml(w.word)}</div>
           <div class="flash-ipa">${escapeHtml(w.ipa)} · ${POS_LABELS[w.pos]||w.pos}</div>
           ${flipped ? `
-            <div class="flash-ru">${escapeHtml(w.ru)}</div>
-            <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
-            <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
-          ` : ''}
+            <div class="flash-translation">
+              <div class="flash-ru">${escapeHtml(w.ru)}</div>
+              <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
+              <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
+            </div>
+          ` : `<div class="flash-hint">тапни — посмотреть перевод</div>`}
         </div>
-        ${flipped ? '' : `<div class="flash-hint">тапни — посмотреть перевод</div>`}
       </div>
     </div>
   </div>`;
@@ -469,7 +513,7 @@ function attachSwipeHandlers(cardEl){
     if(!moved){
       dragState = null;
       cardEl.style.transform = '';
-      if(!state.learnFlipped){ state.learnFlipped = true; route(); }
+      state.learnFlipped = !state.learnFlipped; route();
       return;
     }
     const vertical = Math.abs(dy) > Math.abs(dx);
@@ -495,13 +539,14 @@ function attachSwipeHandlers(cardEl){
 }
 function showGoalMetModal(){
   feedbackGoalMet();
+  const nextBlock = BLOCKS[BLOCKS.findIndex(b=>b.id==='learn')+1];
   document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card goal-modal">
     <div class="big-ic">🎯</div>
     <div class="flash-word" style="font-size:22px;">Дневная цель выполнена!</div>
     <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">Ты закрыл(а) ${state.learnTodayTarget} слов в «Изучении слов» на сегодня. Можно остановиться или продолжать — как захочешь.</div>
-    <div class="modal-actions" style="justify-content:center;margin-top:20px;">
-      <button class="btn btn-outline" onclick="closeModal();location.hash='blocks';">К задачам</button>
-      <button class="btn btn-primary" onclick="closeModal();">Продолжать</button>
+    <div class="modal-actions" style="justify-content:center;margin-top:20px;flex-direction:column;">
+      ${nextBlock ? `<button class="btn btn-primary btn-block" onclick="closeModal();openBlock('${nextBlock.id}');">Следующая задача: ${nextBlock.title} →</button>` : ''}
+      <button class="btn btn-outline btn-block" onclick="closeModal();">Продолжать здесь</button>
     </div>
   </div></div>`;
 }
