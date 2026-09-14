@@ -15,6 +15,7 @@ const ICONS = {
   bank:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v13.5"/><path d="M4 19.5A1.5 1.5 0 0 1 5.5 18H19"/><path d="M8 7h7M8 10h7"/></svg>',
   stats:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>',
   settings:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>',
+  tasks:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.3 2.3L16 10"/></svg>',
   speak:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
   star:'<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M12 2.5l2.9 6.2 6.8.7-5.1 4.6 1.5 6.7L12 17.3l-6.1 3.4 1.5-6.7-5.1-4.6 6.8-.7L12 2.5Z"/></svg>',
   starOutline:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2.5l2.9 6.2 6.8.7-5.1 4.6 1.5 6.7L12 17.3l-6.1 3.4 1.5-6.7-5.1-4.6 6.8-.7L12 2.5Z"/></svg>',
@@ -52,17 +53,6 @@ function highlightWord(sentence, word){
 }
 function normalizeAnswer(s){ return s.trim().toLowerCase().replace(/[.,!?;:'"()]/g,''); }
 function shuffle(arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-function fmtIvl(days){
-  if(days<1) return '<1д';
-  if(days<30) return days+'д';
-  if(days<365) return Math.round(days/30)+'мес';
-  return (days/365).toFixed(1)+'г';
-}
-function previewIvl(word, grade){
-  const ivl = word.ivl || 0;
-  if(!ivl) return grade==='hard'?1:2;
-  return grade==='hard' ? Math.max(1,Math.round(ivl*1.2)) : Math.max(1,Math.round(ivl*2.5));
-}
 function speak(text, rate){
   if(!('speechSynthesis' in window)) return;
   try{ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate=rate||1; speechSynthesis.speak(u); }catch(e){}
@@ -79,7 +69,7 @@ const state = {
   client: null,
   words: [], wordsById: {},
   today: null,
-  learnQueue: [], learnFlipped: false,
+  learnQueue: [], learnFlipped: false, learnQueueLoaded: false, learnTodayCompleted: null, learnTodayTarget: null,
   practiceMode: null, practicePool: [], practiceIdx: 0, practiceScore:{correct:0,wrong:0},
   bankQuery:'', bankStatus:null, bankPage:1,
 };
@@ -177,6 +167,7 @@ async function startApp(){
 const NAV = [
   {id:'home', label:'Главная', icon:'home'},
   {id:'bank', label:'Банк слов', icon:'bank'},
+  {id:'blocks', label:'Задачи', icon:'tasks', main:true},
   {id:'stats', label:'Статистика', icon:'stats'},
   {id:'settings', label:'Настройки', icon:'settings'},
 ];
@@ -185,16 +176,18 @@ function currentViewArg(){ return location.hash.split('/')[1] || null; }
 
 function renderShell(){
   const view = currentViewId();
-  const navViewId = ['blocks','session','practice'].includes(view) ? 'home' : view;
+  const navViewId = ['session','practice'].includes(view) ? 'blocks' : view;
   document.getElementById('sidebar').style.display = '';
   document.getElementById('tabbar').style.display = '';
   document.getElementById('sidebar').innerHTML =
     '<div class="brand"><div class="brand-mark">L</div><div class="brand-name">Lexi</div></div>'+
-    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`).join('')+'</div>'+
+    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}</span></button>`).join('')+'</div>'+
     '<div class="nav-spacer"></div>'+
     '<div class="sidebar-foot">'+escapeHtml(state.client?.name||'')+(state.client?.name?' · ':'')+'Уровень '+(state.client?.level||'—')+'</div>';
   document.getElementById('tabbar').innerHTML = NAV.map(n=>
-    `<button class="tab-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`
+    n.main
+      ? `<button class="tab-item tab-item-main${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'"><span class="tab-main-circle">${ICONS[n.icon]}</span><span>${n.label}</span></button>`
+      : `<button class="tab-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`
   ).join('');
 }
 
@@ -238,11 +231,12 @@ async function renderHome(el){
       <div class="card stat-card"><div class="stat-num">${inProgress}</div><div class="stat-label">В изучении</div></div>
       <div class="card stat-card"><div class="stat-num">${state.words.length}</div><div class="stat-label">Всего слов (${state.client.level})</div></div>
     </div>
-    <div class="card cta-card primary">
-      <div class="cta-title">Начать занятие</div>
-      <div class="cta-sub">6 блоков на сегодня — заполни прогресс-бар по каждому</div>
-      <div><button class="btn btn-primary" onclick="location.hash='blocks'">Поехали →</button></div>
+    <div class="page-head" style="margin-top:8px;"><div><div class="section-title" style="margin:0;">Задачи на сегодня</div></div></div>
+    <div class="card overall-progress">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--ink-muted);"><span>Общий прогресс</span><span>${overallPct}%</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${overallPct}%"></div></div>
     </div>
+    ${blockGridHtml(today)}
     <div class="section-title" style="margin-top:28px;">Как устроена Lexi</div>
     <div class="info-grid">
       <div class="card info-card">
@@ -264,83 +258,133 @@ async function renderHome(el){
   `;
 }
 
-/* ===== block picker ===== */
+/* ===== tasks / block picker ===== */
+function blockGridHtml(today){
+  const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
+  return `<div class="block-grid">
+    ${BLOCKS.map(b=>{
+      const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
+      const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
+      const done = pct>=100;
+      return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
+        <div class="block-ic">${b.ic}</div>
+        <div class="block-body">
+          <div class="block-title">${b.title}${done?' ✓':''}</div>
+          <div class="block-desc">${b.desc}</div>
+          <div class="block-progress">
+            <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+            <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
 async function renderBlocks(el){
   const today = await api('/api/session/today');
   state.today = today;
-  const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
   const overallPct = today.totalTarget>0 ? Math.min(100, Math.round(100*today.totalCompleted/today.totalTarget)) : 0;
 
   el.innerHTML = `
-    <div class="page-head"><div><div class="page-title">Занятие на сегодня</div><div class="page-sub">Заполни прогресс-бар в каждом блоке</div></div></div>
+    <div class="page-head"><div><div class="page-title">Задачи на сегодня</div><div class="page-sub">Заполни прогресс-бар в каждом блоке</div></div></div>
     <div class="card overall-progress">
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--ink-muted);"><span>Общий прогресс</span><span>${overallPct}%</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${overallPct}%"></div></div>
     </div>
-    <div class="block-grid">
-      ${BLOCKS.map(b=>{
-        const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
-        const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
-        const done = pct>=100;
-        return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
-          <div class="block-ic">${b.ic}</div>
-          <div class="block-body">
-            <div class="block-title">${b.title}${done?' ✓':''}</div>
-            <div class="block-desc">${b.desc}</div>
-            <div class="block-progress">
-              <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-              <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
-            </div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
+    ${blockGridHtml(today)}
   `;
 }
 function openBlock(id){
-  if(id==='learn') location.hash = 'session';
-  else location.hash = 'practice/'+id;
+  if(id==='learn'){
+    state.learnQueue = []; state.learnQueueLoaded = false; state.learnFlipped = false;
+    state.learnTodayCompleted = null; state.learnTodayTarget = null;
+    if(location.hash.replace('#','')==='session') route(); else location.hash = 'session';
+  } else {
+    const target = 'practice/'+id;
+    if(location.hash.replace('#','')===target){ state.practicePool=[]; route(); }
+    else location.hash = target;
+  }
 }
 
-/* ===== learn session (swipe cards) ===== */
+/* ===== feedback: sound + haptics ===== */
+let audioCtx = null;
+function playTone(freq, dur, type){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type||'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.16, audioCtx.currentTime+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+dur+0.02);
+  }catch(e){}
+}
+function feedbackFor(grade){
+  try{ if(navigator.vibrate) navigator.vibrate(grade==='hard' ? [12,40,12] : 16); }catch(e){}
+  if(grade==='hard') playTone(220, .14, 'sine');
+  else if(grade==='good') playTone(660, .1, 'sine');
+  else playTone(880, .12, 'sine');
+}
+function feedbackGoalMet(){
+  try{ if(navigator.vibrate) navigator.vibrate([15,60,15,60,25]); }catch(e){}
+  playTone(660,.09); setTimeout(()=>playTone(880,.14),100);
+}
+
+/* ===== learn session (vertical swipe cards) ===== */
 async function renderLearnSession(el){
-  if(state.learnQueue.length===0){
+  if(state.learnTodayCompleted==null){
+    const today = await api('/api/session/today');
+    const lb = today.blocks.find(b=>b.block==='learn');
+    state.learnTodayCompleted = lb ? lb.completed : 0;
+    state.learnTodayTarget = lb ? lb.target : state.client.dailyGoal;
+  }
+  if(state.learnQueue.length===0 && !state.learnQueueLoaded){
     const q = await api('/api/session/queue');
     state.learnQueue = shuffleInterleave(q.due, q.new);
+    state.learnQueueLoaded = true;
   }
+
+  const pct = state.learnTodayTarget>0 ? Math.min(100, Math.round(100*state.learnTodayCompleted/state.learnTodayTarget)) : 0;
+  const goalMet = state.learnTodayCompleted >= state.learnTodayTarget;
+  const goalBar = `<div class="session-goal${goalMet?' goal-met':''}">
+      <div class="session-goal-row"><span>Изучение слов сегодня</span><span><b>${state.learnTodayCompleted}</b>/${state.learnTodayTarget}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  const backRow = `<button class="btn btn-ghost btn-sm session-back" onclick="location.hash='blocks'">← Задачи на сегодня</button>`;
+
   if(state.learnQueue.length===0){
-    el.innerHTML = sessionEmptyHtml();
+    el.innerHTML = `<div class="session-shell">${backRow}${goalBar}<div class="card session-empty">
+      <div class="big-ic">🎉</div>
+      <div style="font-weight:700;font-size:17px;margin-bottom:6px;">Все карточки на сегодня пройдены!</div>
+      <div style="margin-bottom:18px;">Загляни в другие задачи или вернись позже.</div>
+      <button class="btn btn-primary" onclick="location.hash='blocks'">К задачам</button>
+    </div></div>`;
     return;
   }
   const w = state.learnQueue[0];
+  const flipped = state.learnFlipped;
   el.innerHTML = `<div class="session-shell">
-    <div class="session-top"><div class="bar-track"><div class="bar-fill" style="width:0%"></div></div><div class="session-count" id="learn-count"></div></div>
-    <div class="flash-stage"><div class="flash" id="flash-card">
-      <div class="flash-badges"><span class="pill pill-level-${w.level}">${w.level}</span>
-        <div class="right-badges"><button class="icon-btn" onclick="event.stopPropagation();speak('${w.word.replace(/'/g,"")}')">${ICONS.speak}</button></div></div>
-      <div class="swipe-flag know" id="swipe-flag">Знаю ✓</div>
-      <div class="flash-word">${escapeHtml(w.word)}</div>
-      <div class="flash-ipa">${escapeHtml(w.ipa)} · ${POS_LABELS[w.pos]||w.pos}</div>
-      ${state.learnFlipped ? `
-        <div class="flash-ru">${escapeHtml(w.ru)}</div>
-        <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
-        <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
-      ` : `<div class="flash-hint">свайпни — если знаешь, тапни — посмотреть перевод</div>`}
-    </div></div>
-    ${state.learnFlipped ? `<div class="grade-row">
-      <button class="grade-btn hard" onclick="gradeLearn('hard')">Трудно<small>${fmtIvl(previewIvl(w,'hard'))}</small></button>
-      <button class="grade-btn good" onclick="gradeLearn('good')">Запомнил<small>${fmtIvl(previewIvl(w,'good'))}</small></button>
-    </div>` : ''}
+    ${backRow}${goalBar}
+    <div class="flash-stage">
+      <div class="swipe-zone up" id="zone-up"><span class="sz-arrow">↑</span><span class="sz-label">${flipped?'Запомнил':'Знаю'}</span></div>
+      <div class="swipe-zone down" id="zone-down"><span class="sz-arrow">↓</span><span class="sz-label">Трудно</span></div>
+      <div class="flash" id="flash-card">
+        <div class="flash-badges"><span class="pill pill-level-${w.level}">${w.level}</span>
+          <div class="right-badges"><button class="icon-btn" onclick="event.stopPropagation();speak('${w.word.replace(/'/g,"")}')">${ICONS.speak}</button></div></div>
+        <div class="flash-word">${escapeHtml(w.word)}</div>
+        <div class="flash-ipa">${escapeHtml(w.ipa)} · ${POS_LABELS[w.pos]||w.pos}</div>
+        ${flipped ? `
+          <div class="flash-ru">${escapeHtml(w.ru)}</div>
+          <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
+          <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
+        ` : `<div class="flash-hint">тапни — посмотреть перевод</div>`}
+      </div>
+    </div>
   </div>`;
   attachSwipeHandlers(document.getElementById('flash-card'));
-}
-function sessionEmptyHtml(){
-  return `<div class="session-shell"><div class="card session-empty">
-    <div class="big-ic">🎉</div>
-    <div style="font-weight:700;font-size:17px;margin-bottom:6px;">Все карточки на сегодня пройдены!</div>
-    <div style="margin-bottom:18px;">Загляни в другие блоки или вернись позже.</div>
-    <button class="btn btn-primary" onclick="location.hash='blocks'">К занятиям</button>
-  </div></div>`;
 }
 function shuffleInterleave(due, fresh){
   const out=[]; let di=0, ni=0;
@@ -354,9 +398,12 @@ function shuffleInterleave(due, fresh){
 let dragState = null;
 function attachSwipeHandlers(cardEl){
   if(!cardEl) return;
+  const zoneUp = document.getElementById('zone-up');
+  const zoneDown = document.getElementById('zone-down');
+  const THRESH = 80;
   cardEl.addEventListener('pointerdown', e=>{
     dragState = {startX:e.clientX, startY:e.clientY, dx:0, dy:0, moved:false};
-    cardEl.setPointerCapture(e.pointerId);
+    try{ cardEl.setPointerCapture(e.pointerId); }catch(err){}
     cardEl.classList.add('swiping');
   });
   cardEl.addEventListener('pointermove', e=>{
@@ -364,13 +411,14 @@ function attachSwipeHandlers(cardEl){
     dragState.dx = e.clientX - dragState.startX;
     dragState.dy = e.clientY - dragState.startY;
     if(Math.abs(dragState.dx)>6 || Math.abs(dragState.dy)>6) dragState.moved = true;
-    cardEl.style.transform = `translate(${dragState.dx}px, ${dragState.dy*0.2}px) rotate(${dragState.dx/18}deg)`;
-    const flag = document.getElementById('swipe-flag');
-    if(flag) flag.style.opacity = Math.min(1, Math.abs(dragState.dx)/90);
+    cardEl.style.transform = `translate(${dragState.dx*0.25}px, ${dragState.dy}px) rotate(${dragState.dx/28}deg)`;
+    if(zoneUp) zoneUp.style.opacity = 0.14 + (dragState.dy<0 ? Math.min(0.7, -dragState.dy/THRESH*0.7) : 0);
+    if(zoneDown) zoneDown.style.opacity = 0.14 + (dragState.dy>0 ? Math.min(0.7, dragState.dy/THRESH*0.7) : 0);
   });
+  const resetZones = ()=>{ if(zoneUp) zoneUp.style.opacity=0.14; if(zoneDown) zoneDown.style.opacity=0.14; };
   const finish = e=>{
     if(!dragState) return;
-    const {dx, moved} = dragState;
+    const {dx, dy, moved} = dragState;
     cardEl.classList.remove('swiping');
     if(!moved){
       dragState = null;
@@ -378,32 +426,55 @@ function attachSwipeHandlers(cardEl){
       if(!state.learnFlipped){ state.learnFlipped = true; route(); }
       return;
     }
-    if(Math.abs(dx) > 90 && !state.learnFlipped){
-      const dir = dx>0 ? 1 : -1;
-      cardEl.style.transition = 'transform .3s ease, opacity .3s ease';
-      cardEl.style.transform = `translate(${dir*700}px, ${dragState.dy}px) rotate(${dir*24}deg)`;
+    const vertical = Math.abs(dy) > Math.abs(dx);
+    if(vertical && Math.abs(dy) > THRESH){
+      const goingUp = dy < 0;
+      const grade = goingUp ? (state.learnFlipped ? 'good' : 'easy') : 'hard';
+      cardEl.style.transition = 'transform .28s ease, opacity .28s ease';
+      cardEl.style.transform = `translate(${dx*0.4}px, ${goingUp?-700:700}px) rotate(${dx/28}deg)`;
       cardEl.style.opacity = '0';
       dragState = null;
-      setTimeout(()=>gradeLearn('easy'), 300);
+      resetZones();
+      setTimeout(()=>gradeLearn(grade), 260);
     } else {
       cardEl.style.transition = 'transform .2s ease';
       cardEl.style.transform = 'translate(0,0) rotate(0)';
-      const flag = document.getElementById('swipe-flag');
-      if(flag) flag.style.opacity = 0;
+      resetZones();
       dragState = null;
     }
   };
   cardEl.addEventListener('pointerup', finish);
   cardEl.addEventListener('pointercancel', finish);
 }
+function showGoalMetModal(){
+  feedbackGoalMet();
+  document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card goal-modal">
+    <div class="big-ic">🎯</div>
+    <div class="flash-word" style="font-size:22px;">Дневная цель выполнена!</div>
+    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">Ты закрыл(а) ${state.learnTodayTarget} слов в «Изучении слов» на сегодня. Можно остановиться или продолжать — как захочешь.</div>
+    <div class="modal-actions" style="justify-content:center;margin-top:20px;">
+      <button class="btn btn-outline" onclick="closeModal();location.hash='blocks';">К задачам</button>
+      <button class="btn btn-primary" onclick="closeModal();">Продолжать</button>
+    </div>
+  </div></div>`;
+}
 async function gradeLearn(grade){
   const w = state.learnQueue[0];
   if(!w) return;
+  feedbackFor(grade);
   try{ await api('/api/session/review', {method:'POST', body: JSON.stringify({wordId:w.id, grade})}); }
   catch(e){ toast('Не удалось сохранить прогресс'); }
   state.learnQueue.shift();
+  if(grade==='hard'){
+    state.learnQueue.splice(Math.min(state.learnQueue.length,3), 0, w);
+  }
+  const wasMet = state.learnTodayCompleted >= state.learnTodayTarget;
+  state.learnTodayCompleted++;
   state.learnFlipped = false;
   route();
+  if(!wasMet && state.learnTodayCompleted >= state.learnTodayTarget){
+    setTimeout(showGoalMetModal, 320);
+  }
 }
 
 /* ===== practice (mc / type_en / fill / listen / speak) ===== */
@@ -422,7 +493,7 @@ function nextPracticeItem(block, wordId, correct){
   setTimeout(()=>{ state.practiceIdx++; route(); }, 700);
 }
 function practiceHeader(){
-  return `<div class="practice-head"><button class="btn btn-ghost btn-sm" onclick="location.hash='blocks'">← Занятия</button>
+  return `<div class="practice-head"><button class="btn btn-ghost btn-sm" onclick="location.hash='blocks'">← Задачи</button>
     <div class="score-pill">${state.practiceIdx}/${state.practicePool.length} · ✓ ${state.practiceScore.correct} ✗ ${state.practiceScore.wrong}</div></div>`;
 }
 function practiceDone(){
@@ -430,7 +501,7 @@ function practiceDone(){
     <div style="font-weight:700;font-size:17px;margin-bottom:6px;">Раунд завершён</div>
     <div style="margin-bottom:18px;">Правильно ${state.practiceScore.correct} из ${state.practicePool.length}</div>
     <div style="display:flex;gap:10px;justify-content:center;">
-      <button class="btn btn-outline" onclick="location.hash='blocks'">К занятиям</button>
+      <button class="btn btn-outline" onclick="location.hash='blocks'">К задачам</button>
       <button class="btn btn-primary" onclick="state.practicePool=buildPracticePool();state.practiceIdx=0;state.practiceScore={correct:0,wrong:0};route();">Ещё раунд</button>
     </div></div>`;
 }
@@ -689,11 +760,9 @@ function renderSettings(el){
 async function changeLevel(level){
   if(level===state.client.level) return;
   try{
-    state.client = await api('/api/client/level', {method:'PUT', body: JSON.stringify({level})});
-    const words = await api('/api/words');
-    state.words = words; rebuildWordIndex();
-    toast('Уровень изменён на '+level);
-    route();
+    await api('/api/client/level', {method:'PUT', body: JSON.stringify({level})});
+    location.hash = 'home';
+    location.reload();
   }catch(e){ toast('Не удалось изменить уровень'); }
 }
 
