@@ -1,0 +1,66 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - test
+      - prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t english_trainer:${{ github.ref_name }} .
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: DB_CONNECTION_STRING,ADMIN_USERNAME,ADMIN_PASSWORD
+          script: |
+            set -e
+
+            if [ -z "${DB_CONNECTION_STRING:-}" ]; then
+              echo "Secret DB_CONNECTION_STRING is empty. Add it in GitHub repo secrets."
+              exit 1
+            fi
+
+            NETWORK=english_trainer_net
+            POSTGRES_CONTAINER=app_postgres
+
+            echo "Ensuring docker network '$NETWORK'..."
+            docker network create "$NETWORK" 2>/dev/null || true
+            docker network connect "$NETWORK" "$POSTGRES_CONTAINER" 2>/dev/null || true
+
+            docker stop english_trainer || true
+            docker rm english_trainer || true
+            docker rmi english_trainer:${{ github.ref_name }} || true
+
+            cd /root/english_trainer
+            git pull || true
+            docker build -t english_trainer:${{ github.ref_name }} .
+
+            docker run -d \
+              --name english_trainer \
+              --restart always \
+              --network "$NETWORK" \
+              -p 8086:80 \
+              -e ASPNETCORE_URLS=http://+:80 \
+              -e "ConnectionStrings__DefaultConnection=$DB_CONNECTION_STRING" \
+              -e "Admin__Username=$ADMIN_USERNAME" \
+              -e "Admin__Password=$ADMIN_PASSWORD" \
+              english_trainer:${{ github.ref_name }}
+
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"

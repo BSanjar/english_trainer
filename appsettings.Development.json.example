@@ -1,0 +1,9 @@
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Port=5544;Database=lexi_english;Username=lexi_user;Password=lexi_user"
+  },
+  "Admin": {
+    "Username": "admin",
+    "Password": "change-me-locally"
+  }
+}

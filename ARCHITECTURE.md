@@ -1,213 +1,216 @@
-# Lexi — English learning assistant
+# Lexi — English learning backend + app
 
-Single-file HTML/CSS/JS app for spaced-repetition English vocabulary learning,
-published as a private Claude Artifact. No build step, no framework, no backend
-of its own. This doc exists so a future AI (or human) can pick up the codebase
-without re-deriving the architecture from scratch.
+ASP.NET Core 8 Web API + EF Core (Npgsql) + Postgres 16, serving a static
+vanilla-JS frontend from `wwwroot`. Single Docker image, same shape as the
+user's other project (`secore/01 WebApplication1`): build → Docker Hub →
+SSH-deploy onto a VPS where the app container joins a shared Docker network
+to reach `app_postgres`.
 
-Live URL: https://claude.ai/code/artifact/372321b7-4b2b-4109-b87d-f9f6a0fbcfd5
-Source of truth: `app.html` (the published file *is* this file — republishing
-means editing `app.html` and re-running the Artifact publish step, see
-"Deploying changes" below).
+This supersedes the original version of Lexi, which was a single static
+`index.html` published as a Claude Artifact with `localStorage`-only
+progress and no accounts. That file's design (SM-2 grading, card layout,
+dark/light palette) is the direct ancestor of what's here — see git history
+(`Initial version of Lexi`) if you need to compare.
 
-## What this is, in one paragraph
-
-`app.html` is one ~625 KB file containing `<style>`, then empty container
-`<div>`s, then one big `<script>` with an embedded ~2500-word dictionary and
-all app logic. There is no npm, no bundler, no React/Vue — plain DOM
-manipulation via `innerHTML`. It is hosted by pasting it into the `Artifact`
-tool, which wraps it in a minimal `<head>` (charset/viewport) and serves it
-at a claude.ai URL. Editing the app means editing `app.html` directly and
-republishing the same file path/URL.
-
-## File layout
+## Stack & layout
 
 ```
-english-assistant/
-  app.html            <- the entire app (THE file that gets published)
-  ARCHITECTURE.md      <- this file
-  data/
-    batch1.json .. batch6.json   <- raw LLM-generated vocab batches (source material)
-    words.final.json             <- deduped/renumbered merge of all batches
-                                     (this JSON was injected into app.html's
-                                     BASE_WORDS array — kept here for reference
-                                     if you need to regenerate or audit words)
+Lexi.csproj, Program.cs        <- entry point, DI wiring, migration+seed on startup
+Data/
+  LexiDbContext.cs
+  Migrations/                   <- EF Core code-first migrations
+data/words.final.json           <- seed source (2544 words), copied to output dir
+Models/                         <- AdminUser, OneTimeCode, Client, Word,
+                                    ClientWordProgress, ClientStar, DailyBlockActivity
+Services/
+  SrsService.cs                 <- grading logic (server-authoritative)
+  Seeder.cs                     <- one-time word + admin seeding
+Middleware/ClientAuthMiddleware.cs   <- Bearer device-token -> HttpContext.Items["Client"]
+Controllers/                    <- Auth, Admin, Client, Words, Session, Stats
+wwwroot/
+  index.html, app.js, styles.css      <- client app (onboarding, home, sessions, bank, stats, settings)
+  admin.html, admin.js                <- admin code-generation screen
+Dockerfile, docker-compose.local.yml, docker/init-lexi-db.sh
 ```
 
-`data/*.json` are **not** loaded at runtime — they were a one-time build
-input. The live word list lives only inside `app.html` as `BASE_WORDS`.
+No frontend build step — `app.js`/`admin.js` are plain scripts, edit and
+refresh. No client-side framework.
 
-## Runtime architecture (inside app.html)
+## Auth model
 
-### 1. Data model
+Two completely separate schemes, both in the same app:
 
-Each word is a flat object:
-```js
-{ id, word, pos, level, topic, ru, ipa, example_en, example_ru }
-```
-- `pos`: one of `n v adj adv prep pron conj det num interj phr`
-- `level`: CEFR-ish `A1 A2 B1 B2 C1`
-- `topic`: a free-text category key (`core`, `travel`, `phrasal-verb`, `custom`, ...) — labels for display live in `TOPIC_LABELS`
-- `ru`: Russian translation(s), multiple senses joined by `; `
-- ids are sequential integers assigned at merge time (not stable across regenerations)
+- **Admin** — a single seeded row in `admin_users` (username/password via
+  `BCrypt`, seeded from `Admin:Username`/`Admin:Password` config or
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD` env vars on first run — see
+  `Services/Seeder.cs`). Logs in at `/admin.html` → `POST /api/admin/login`
+  → ASP.NET cookie auth (`AddCookie("AdminCookie")`, 30-day sliding
+  expiry). `POST /api/admin/codes` mints a 6-digit single-use code, 30 min
+  expiry, stored in `one_time_codes`.
+- **Client** — no password at all. First visit: no `lexi_device_token` in
+  `localStorage` → code-entry screen → `POST /api/auth/redeem` validates
+  the code (unused, unexpired), creates a `clients` row with a fresh random
+  `DeviceToken` (guid), marks the code used, returns the token. The
+  frontend stores it and sends `Authorization: Bearer <token>` on every API
+  call afterward; `Middleware/ClientAuthMiddleware.cs` resolves that header
+  to a `Client` row on every request (no ASP.NET auth scheme involved —
+  it's a plain lookup, see the middleware for why: simpler than a custom
+  `AuthenticationHandler` for a single header-shaped credential). "Same
+  device" is therefore "same browser profile with that `localStorage`
+  entry intact" — clearing site data or switching browsers means entering
+  a new code.
 
-`BASE_WORDS` = the embedded 2544-word dictionary (hardcoded array, search for
-`/*WORDS_START*/` / `/*WORDS_END*/` markers in the script to find/replace it).
-`CUSTOM_WORDS` = words the user imported at runtime via Settings → "Импорт
-своей колоды" (CSV/TSV upload), persisted in `localStorage` under
-`ea.customWords.v1`.
+First login with `client.Level == null` shows a one-time level picker
+(`PUT /api/client/level`) before anything else loads.
 
-`WORDS = BASE_WORDS.concat(CUSTOM_WORDS)` is the array actually used
-everywhere. `WORDS_BY_ID` and `TOPICS_PRESENT` are derived indexes rebuilt by
-`rebuildWordIndex()` whenever `CUSTOM_WORDS` changes.
+## Data model
 
-**Known gap:** the dictionary is 2544 words, not the originally-targeted
-3000 — six parallel generation batches of 500 words each overlapped by ~450
-words (common vocabulary like "important" showed up in multiple topic
-batches) and were deduped by lowercase word match, keeping the first
-occurrence. This was a deliberate stop, not a bug — the user asked to stop
-topping it up. If you want to reach 3000, add more words via the Settings
-import feature, or generate another batch of unique words and merge it into
-`BASE_WORDS` (a merge script pattern is described in "Adding more words"
-below).
+- `words` — the static dictionary (2544 rows, seeded once from
+  `data/words.final.json` when the table is empty; re-seeding is a
+  deliberate manual step, not automatic on every boot).
+- `client_word_progress` — per-client SRS state per word (`Ef`, `Ivl`,
+  `Reps`, `Stage`, `Due`, `Last`, `Correct`, `Wrong`). `SrsService.StatusOf`
+  derives `new` / `review` / `mastered` (`Ivl >= 21` days) from this — there
+  is no separate `learning` stage anymore (see grading below).
+- `client_daily_block_activity` — one row per `(client, date, block)`,
+  `CompletedCount`/`TargetCount`/`LastWordId`. This is what drives the six
+  per-block progress bars and the overall daily bar on the "Занятие на
+  сегодня" screen, and what the month/streak stats aggregate over.
+- `client_word_stars`, `one_time_codes`, `admin_users`, `clients` — as the
+  names say.
 
-### 2. Persistence (`Store` object)
+**Materials are filtered by exact level match** (`client.Level == word.Level`),
+not cumulative (a B1 client does not see A1/A2 words). This was a
+deliberate simplification, flagged as easy to change — see
+`WordsController.GetWords` / `SessionController.GetQueue`, both take
+`client.Level` as a hard equality filter.
 
-Two storage layers:
+**Daily goal is one number per client** (`Client.DailyGoal`, default 20),
+applied uniformly as the `TargetCount` for all six blocks — there's no
+per-block target setting. Changeable via `PUT /api/client/goal` (Settings
+page slider).
 
-**Primary — `localStorage`** (always available, synchronous, per-browser):
-- `ea.progress.v1` — map of `wordId -> SRS progress object` (see below)
-- `ea.stats.v1` — `{ days: { 'YYYY-MM-DD': {reviews,correct,wrong,newWords} } }`
-- `ea.settings.v1` — `{ dailyNewLimit, levels, topics, ttsRate }`
-- `ea.starred.v1` — array of starred word ids
-- `ea.customWords.v1` — array of imported word objects (see Data model)
+## Grading (SRS) — the swipe redesign
 
-**Secondary — Claude Artifact `db` capability** (optional, cloud, best-effort):
-Only works when the page runs inside the Claude Artifacts runtime (i.e. the
-published URL, not a raw local file). `initSync()` on load calls
-`window.claude.use('db')`; if available, it pulls a snapshot doc
-(`backup/progress`) and — **only if localStorage is empty** (first run on a
-new device) — hydrates local state from it. Every subsequent progress change
-calls `queueSync()`, which debounces 2.5s then pushes the *entire* progress
-map + stats + starred list as one JSON-stringified blob into that single
-`db` document (`doc.set(...)`, full overwrite, last-writer-wins — no merge
-logic, no conflict resolution). This is a deliberately simple "poor man's
-sync", not a real multi-device CRDT — if you use two devices at once you can
-clobber each other's recent progress.
+`Services/SrsService.cs` is the *only* place grading math happens; the
+client-side `previewIvl()` in `app.js` is a rough approximation used purely
+to label the Hard/Good buttons before the server call resolves — never
+treat it as authoritative.
 
-If `db` is unavailable (`window.claude` missing, or `use('db')` resolves
-`null`), the app silently runs localStorage-only — check `syncState` /
-`dbNs` in the code, and the sidebar/settings "sync pill" reflects this to
-the user (`Локально` vs `Синхронизировано`).
+Exactly three outcomes, no "again"/forgot path at all (by product decision —
+see the commit that introduced this):
+- **Swipe the card, either direction** (pointer drag past ~90px, see
+  `attachSwipeHandlers` in `app.js`) → graded `easy`, translation never
+  shown. New word: `Ivl = 4`. Existing: `Ivl = round(Ivl * Ef * 1.3)`, `Ef += 0.15`.
+- **Tap the card** → flips to reveal translation + example, then two
+  buttons only: **Трудно** (`hard`) and **Запомнил** (`good`).
+  - `hard`: new word `Ivl = 1`; existing `Ivl = round(Ivl * 1.2)`, `Ef -= 0.15` (floor 1.3).
+  - `good`: new word `Ivl = 2`; existing `Ivl = round(Ivl * Ef)`.
+- Every grade is forward-progressing — nothing ever resets `Reps` or sends a
+  word back into a short-interval relearning loop. `POST /api/session/review`
+  is the only endpoint that touches `client_word_progress`; it also bumps
+  the `learn` block's daily activity row.
 
-**`downloads` capability** (optional): used only by "Скачать" backup button
-in Settings (`exportBackup()`). If unavailable, the button shows a toast and
-does nothing — there is deliberately no `<a download>` fallback, because the
-Claude Artifact viewer sandbox blocks script-driven downloads outright (see
-comments in `exportBackup`).
+The other five blocks (`mc`, `type_en`, `fill`, `listen`, `speak`) are
+plain drilling — pool built client-side from already-fetched `state.words`
+(prefer non-`new` words), correctness computed client-side exactly like the
+original Artifact version did (`normalizeAnswer`, `mcOptions`,
+`SpeechRecognition` for pronunciation). They do **not** touch
+`client_word_progress`; each answered item just calls
+`POST /api/session/progress {block, wordId}` to bump that block's daily
+counter. Repeating a finished block is unlimited (`buildPracticePool()`
+reshuffles a fresh 20-word pool on "Ещё раунд").
 
-Manual backup files: `exportBackup()` / `importBackup()` round-trip a plain
-JSON `{progress, stats, starred, settings}` blob through the `downloads`
-capability and a `<input type=file>` + `FileReader`, respectively — this
-works regardless of the `db` capability and is the reliable way to move
-progress between browsers/devices by hand.
+## Local development
 
-### 3. SRS (spaced repetition) engine
+`docker-compose.local.yml` runs `app_postgres` (postgres:16-alpine) with
+`docker/init-lexi-db.sh` creating the `lexi_english` database and
+`lexi_user` role (full rights on `public`) under a superuser named
+`appuser`, matching the VPS convention described by the user. Copy
+`appsettings.Development.json.example` → `appsettings.Development.json`
+(gitignored) and fill in real local values before running `dotnet run` or
+`dotnet ef database update`.
 
-Pure function `reviewWord(prog, grade)` in the script — takes the existing
-progress object (or `null` for a brand-new word) and a grade
-(`'again' | 'hard' | 'good' | 'easy'`), returns a **new** progress object
-(does not mutate the input, so it's safe to call twice for UI previews).
+**Port note (read this before reusing 5432/5433 locally):** this dev
+machine already has a native PostgreSQL service bound to `0.0.0.0:5432`
+(unrelated to this project). It also has (at least on this machine, set up
+outside this project) an `ssh.exe` tunnel bound to `127.0.0.1:5433` that
+reaches the **real production `app_postgres` on the server** — that's the
+one this project actually seeded and migrated (see "Production database"
+above). Both of these silently intercept "localhost" connections ahead of
+a Docker Desktop port mapping on the same number, which looks like a
+wrong-password error, not a port-conflict error, and wastes time
+double-checking credentials that were already correct. `docker-compose.local.yml`
+therefore exposes its disposable local Postgres on **5544**, deliberately
+clear of both. If you're on a machine with that same SSH tunnel available,
+pointing `appsettings.Development.json` at `Host=127.0.0.1;Port=5433;...`
+talks to the real server data directly — convenient, but treat it with the
+same care as prod (it *is* prod). If you don't have that tunnel, use the
+5544 fallback instead and expect an empty database until you seed it.
 
-Model: SM-2-derived with a short "learning" phase before graduating to
-day-scale spaced review.
-- New word → `stage: 'learning'`, two learning steps at `LEARN_STEPS_MIN = [1, 10]` minutes.
-- `'again'` at any stage resets to learning step 0, increments `lapses`, drops `ef` by 0.2 (floor 1.3), reschedules ~1 minute out — this reinserts the card into the *current session* (see `gradeCard()` splicing it back into `state.sessionQueue`).
-- Passing both learning steps graduates to `stage: 'review'` with `ivl` (interval, in days) = 1 (hard/good) or 4 (easy).
-- In `'review'` stage: `hard` → `ivl *= 1.2`, ef -0.15; `good` → `ivl *= ef`; `easy` → `ivl *= ef*1.3`, ef +0.15. `ef` floor is 1.3.
-- `statusOf(id)`: `new` (no progress) / `learning` / `review` / `mastered` (`ivl >= 21` days).
+Migrations: `dotnet ef migrations add <Name> -o Data/Migrations`, apply
+with `dotnet ef database update` (needs `dotnet tool install --global
+dotnet-ef` once). Both commands need `ASPNETCORE_ENVIRONMENT=Development`
+set so they pick up `appsettings.Development.json`.
 
-Progress object shape: `{ ef, ivl, reps, stage, step, due, last, correct, wrong, lapses }` (`due` and `last` are epoch ms).
+## Deploying
 
-### 4. Views / routing
+`.github/workflows/deploy.yml` triggers on push to `test`/`prod`. It does
+**not** use a registry (no Docker Hub push) — it builds once on the runner
+as a compile sanity-check, then SSHes into the server, `git pull`s this
+repo in `/root/english_trainer`, and does the real `docker build` +
+`docker run` there directly. This mirrors the simpler of the user's two
+existing patterns (their `secore` repo root workflow), not the
+registry-based one in `secore/01 WebApplication1`. The deploy script also
+creates/joins a project-specific network (`english_trainer_net`) and
+attaches the shared `app_postgres` container to it, since — unlike
+whatever the `secore` root app does — this app needs to actually reach
+Postgres by hostname.
 
-Hash-based, no router library. `route()` reads `location.hash`
-(`currentViewId()` / `currentViewArg()`, e.g. `#practice/mc` → view=`practice`,
-arg=`mc`) and calls the matching `render*(el)` function, replacing
-`#view`'s `innerHTML` wholesale each navigation. `renderShell()` redraws the
-sidebar/tabbar nav (with due-count badge) on every route change.
+External port is **8086** → container's internal 80. Required GitHub repo
+secrets: `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` (SSH deploy target,
+same as `secore`), `DB_CONNECTION_STRING` (full Npgsql string, e.g.
+`Host=app_postgres;Port=5432;Database=lexi_english;Username=lexi_user;Password=lexi_user`),
+`ADMIN_USERNAME`, `ADMIN_PASSWORD` (seeds the one admin row on first boot
+against a fresh database — irrelevant once `admin_users` already has a
+row, since seeding is a one-time "if empty" check). None of these are
+committed; `appsettings.json` ships with an empty connection string on
+purpose.
 
-Views: `home`, `session` (flashcards — arg selects `mixed|review|learn`
-queue), `bank` (searchable/filterable word table + modal detail), `practice`
-(mode picker + 5 exercise types), `stats`, `settings`.
+The server must have this repo cloned once at `/root/english_trainer`
+(`git clone` before the first deploy) — the workflow only `git pull`s, it
+doesn't clone.
 
-State lives in one plain object, `state = {...}` (session queue/position,
-bank filters/pagination, practice pool/score, etc.) — not reactive, every
-mutation is followed by an explicit `route()` or targeted DOM update call.
+## Production database
 
-**Practice modes** (`PRACTICE_MODES`, dispatched in `renderPracticeItem`):
-`mc` (multiple choice on translation), `type-en` (type the English word from
-its translation), `fill` (fill the blank in the example sentence), `listen`
-(dictation via TTS), `speak` (pronunciation via `SpeechRecognition`, feature-
-detected, hidden if unsupported). None of these touch the SRS engine — they
-only bump daily stats (`Store.bumpDay`) for streak/accuracy tracking. Only
-the `session` flow (Learn/Review) calls `reviewWord()`.
+Per explicit instruction, this project uses the **real, shared
+`app_postgres` on the server** as its actual database — not a disposable
+local container. As of this write-up its `lexi_english` schema (8 tables)
+and the 2544-word seed were already applied by running this app once with
+its connection string pointed at that server (over an SSH tunnel from a
+dev machine; see below). A stray `newtable` that pre-existed there (not
+created by this project) was dropped.
 
-### 5. UI / theming
+`docker-compose.local.yml` + `docker/init-lexi-db.sh` still exist as a
+**fully disposable fallback** for anyone who wants an isolated local
+Postgres (e.g. to test a schema change before touching the shared
+database) — see the port note below for why it defaults to 5544. They are
+not the source of truth and don't need to be kept in sync with the real
+server beyond "same migrations apply cleanly to both."
 
-CSS custom properties define the full light palette on bare `:root`, redefined under
-`@media (prefers-color-scheme: dark)` (guarded `:root:not([data-theme="light"])`)
-and again under `:root[data-theme="dark"]` — this is required by the Claude
-Artifact platform's theming contract (the page has no `<html>`/`<head>` of its
-own; the platform stamps `data-theme` on the real root element). Fonts:
-Fraunces (display/serif), Manrope (body/UI), IBM Plex Mono (numbers/IPA) —
-loaded from Google Fonts via a `<link>` at the top of the file.
+## Verification performed
 
-No icon library — all icons are small hand-written inline SVGs in the
-`ICONS` object.
-
-## Adding more words
-
-1. Generate/collect new entries matching the schema in "Data model" above.
-2. Easiest for a user: Settings → "Импорт своей колоды" — upload a `.csv`/`.tsv`/`.txt`
-   file, columns in order `word, ru, example_en, example_ru, ipa, pos, level`
-   (only the first two are required; delimiter auto-detected as tab/semicolon/comma;
-   HTML tags are stripped so raw Anki exports work). Parsed by `parseImportText()`,
-   stored in `CUSTOM_WORDS`/`localStorage`, tagged `topic: 'custom'`, ids continue
-   from `max(existing id) + 1`. Case-insensitive de-dupe against existing words.
-3. To bake more words into the shipped `BASE_WORDS` (rather than relying on
-   per-user import), edit the JSON array between the `/*WORDS_START*/` and
-   `/*WORDS_END*/` comment markers in `app.html` directly, or reproduce the
-   original build: generate batches → merge/dedupe/renumber with a small
-   Node script → `JSON.stringify` the result in place of `BASE_WORDS`'s value.
-   Keep ids sequential starting at 1 if you regenerate from scratch (existing
-   users' `localStorage` progress is keyed by id, so **renumbering ids after
-   users have real progress will silently detach their progress from the
-   wrong words** — only safe to renumber before this app has real usage, or
-   when appending new ids after the current max).
-
-## Deploying changes
-
-This is not a git repo / CI pipeline — "deploying" = calling the `Artifact`
-tool again with `file_path: app.html` and `url:` set to the existing artifact
-URL above, so it republishes in place rather than creating a new one. Any
-edit to `app.html` needs a republish to reach the live URL. Capabilities
-(`db`, `downloads`) persist across republishes if the `capabilities` param is
-omitted; pass `{}` explicitly to clear them.
-
-## Known limitations / things a future change might want to address
-
-- 2544 words, not the original 3000 target (see "Data model" above for why).
-- Cloud sync is last-writer-wins on a single JSON blob — no real conflict
-  resolution; using the app simultaneously on two devices can lose progress
-  from whichever device wrote second-to-last.
-- No automated tests. Verification so far has been manual browser testing
-  (local `python -m http.server` with a UTF-8 `Content-Type` override, since
-  Cyrillic text mis-renders without an explicit charset when served without
-  the Claude Artifact platform's own `<head>`).
-- `SpeechRecognition` (pronunciation practice mode) is Chrome/Chromium-only;
-  the UI feature-detects and hides the mode gracefully elsewhere, but there's
-  no alternative pronunciation-check method for other browsers.
-- IPA transcriptions and Russian translations are LLM-generated, not sourced
-  from a verified dictionary — spot-check before treating them as
-  authoritative for anything beyond casual learning.
+Full manual walkthrough against the local Postgres (port 5544), both via
+`curl` and in a real browser tab: admin login → generate code → client
+redeem (and confirmed a second redeem of the same code correctly rejects)
+→ level picker → `GET /api/words` returns only that level → swipe-graded a
+card via synthetic pointer events end-to-end (confirmed `Ivl = 4` "easy"
+result actually landed in Postgres) → tap-graded a card via "Запомнил" →
+block picker progress bars updated → word bank search/status filters →
+month stats/streak/heatmap → settings level switch and daily-goal slider.
+Migrations and seeding were then separately confirmed against the real
+server `app_postgres` (via the SSH tunnel above): schema matched, stray
+`newtable` dropped, 2544 words + the admin row seeded successfully.
+No automated test suite exists yet, and the full app flow (not just DB
+connectivity) has not yet been exercised against the deployed container
+on the VPS itself.
