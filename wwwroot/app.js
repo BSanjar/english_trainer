@@ -327,18 +327,42 @@ function openBlock(id){
 
 /* ===== feedback: sound + haptics ===== */
 let audioCtx = null;
+let audioUnlocked = false;
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked = true;
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // iOS/Safari only fully "unlocks" the context once a real (silent) sound
+    // has actually started playing inside a genuine user-gesture call stack —
+    // creating the context alone is not enough, and resume() without this
+    // primer often leaves later, non-gesture-triggered tones silent.
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.01);
+    if(audioCtx.state==='suspended') audioCtx.resume();
+  }catch(e){}
+}
+['pointerdown','touchstart','click','keydown'].forEach(evt=>
+  document.addEventListener(evt, unlockAudio, {once:true, passive:true})
+);
 function playTone(freq, dur, type){
   try{
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if(audioCtx.state==='suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type||'sine'; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.16, audioCtx.currentTime+0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+dur);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime+dur+0.02);
+    const run = ()=>{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type||'sine'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.16, audioCtx.currentTime+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+dur);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime+dur+0.02);
+    };
+    if(audioCtx.state==='suspended') audioCtx.resume().then(run).catch(()=>{});
+    else run();
   }catch(e){}
 }
 function feedbackFor(grade){
