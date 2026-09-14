@@ -106,7 +106,7 @@ h1,h2,h3{text-wrap:balance;margin:0;}
 svg{display:block;}
 
 /* ---------- onboarding ---------- */
-.onboard-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.onboard-wrap{display:flex;justify-content:center;padding:28px 20px;}
 .onboard-card{max-width:400px;width:100%;padding:36px 32px;text-align:center;}
 .onboard-title{font-family:var(--font-display);font-size:26px;font-weight:600;margin-bottom:8px;}
 .onboard-sub{color:var(--ink-muted);font-size:14px;margin-bottom:26px;line-height:1.5;}
