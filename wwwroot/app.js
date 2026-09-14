@@ -313,12 +313,11 @@ function paintHome(el, today){
 function blockGridHtml(today){
   const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
   return `<div class="block-grid">
-    ${BLOCKS.map((b,idx)=>{
+    ${BLOCKS.map(b=>{
       const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
       const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
       const done = pct>=100;
       return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
-        <div class="block-num">${idx+1}</div>
         <div class="block-ic">${b.ic}</div>
         <div class="block-body">
           <div class="block-title">${b.title}${done?' ✓':''}</div>
@@ -370,26 +369,27 @@ function openBlock(id){
 
 /* ===== feedback: sound + haptics ===== */
 let audioCtx = null;
-let audioUnlocked = false;
+let audioReady = false;
 function unlockAudio(){
-  if(audioUnlocked) return;
-  audioUnlocked = true;
+  if(audioReady) return;
   try{
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    // iOS/Safari only fully "unlocks" the context once a real (silent) sound
-    // has actually started playing inside a genuine user-gesture call stack —
-    // creating the context alone is not enough, and resume() without this
-    // primer often leaves later, non-gesture-triggered tones silent.
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    gain.gain.value = 0;
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime + 0.01);
+    // iOS in particular only unlocks the whole session once resume() has been
+    // called AND a sound has actually started, both inside a real gesture's
+    // call stack. Keep retrying on every gesture (cheap once truly unlocked)
+    // instead of a single {once:true} attempt, since the very first gesture
+    // sometimes fires before the context finishes initializing.
     if(audioCtx.state==='suspended') audioCtx.resume();
+    const buffer = audioCtx.createBuffer(1, 1, 22050);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(audioCtx.destination);
+    src.start(0);
+    if(audioCtx.state==='running') audioReady = true;
   }catch(e){}
 }
 ['pointerdown','touchstart','click','keydown'].forEach(evt=>
-  document.addEventListener(evt, unlockAudio, {once:true, passive:true})
+  document.addEventListener(evt, unlockAudio, {passive:true})
 );
 function playTone(freq, dur, type){
   try{
@@ -399,7 +399,7 @@ function playTone(freq, dur, type){
       const gain = audioCtx.createGain();
       osc.type = type||'sine'; osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.16, audioCtx.currentTime+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime+0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+dur);
       osc.connect(gain); gain.connect(audioCtx.destination);
       osc.start(); osc.stop(audioCtx.currentTime+dur+0.02);
