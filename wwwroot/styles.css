@@ -160,6 +160,7 @@ svg{display:block;}
 .block-progress .bar-track{height:6px;}
 .block-progress-label{font-family:var(--font-mono);font-size:11px;color:var(--ink-muted);margin-top:4px;}
 .block-done .block-ic{background:var(--success-soft);color:var(--success);}
+.block-body{display:contents;}
 
 /* ---------- session / swipe flashcard ---------- */
 .session-shell{max-width:640px;margin:0 auto;}
@@ -277,8 +278,16 @@ input[type=range]{flex:1;accent-color:var(--accent);}
   .tab-item.active{color:var(--accent);}
   .tab-item .ic{width:20px;height:20px;}
 }
+@media (max-width:600px){
+  .block-grid{grid-template-columns:1fr;gap:8px;}
+  .block-card{flex-direction:row;align-items:center;padding:12px 14px;gap:12px;}
+  .block-ic{width:34px;height:34px;font-size:16px;flex:none;}
+  .block-body{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;}
+  .block-body .block-title{font-size:14px;}
+  .block-desc{display:none;}
+  .block-progress{margin-top:0;}
+}
 @media (max-width:520px){
-  .block-grid{grid-template-columns:1fr;}
   .flash-word{font-size:32px;}
 }
 @media (prefers-reduced-motion: reduce){

@@ -284,11 +284,13 @@ async function renderBlocks(el){
         const done = pct>=100;
         return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
           <div class="block-ic">${b.ic}</div>
-          <div class="block-title">${b.title}${done?' ✓':''}</div>
-          <div class="block-desc">${b.desc}</div>
-          <div class="block-progress">
-            <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-            <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
+          <div class="block-body">
+            <div class="block-title">${b.title}${done?' ✓':''}</div>
+            <div class="block-desc">${b.desc}</div>
+            <div class="block-progress">
+              <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+              <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
+            </div>
           </div>
         </div>`;
       }).join('')}
