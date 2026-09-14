@@ -10,6 +10,9 @@ public static class BlockType
     public const string Speak = "speak";
 
     public static readonly string[] All = { Learn, Mc, TypeEn, Fill, Listen, Speak };
+    // Listen/Speak are hidden in the UI for now (coming soon), so they're excluded
+    // from the daily/monthly progress totals shown to clients.
+    public static readonly string[] Active = { Learn, Mc, TypeEn, Fill };
 }
 
 public class DailyBlockActivity

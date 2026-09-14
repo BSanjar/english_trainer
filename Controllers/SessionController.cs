@@ -99,7 +99,7 @@ public class SessionController : LexiControllerBase
             .Where(a => a.ClientId == client.Id && a.Level == client.Level && a.Date == today)
             .ToDictionaryAsync(a => a.Block);
 
-        var blocks = BlockType.All.Select(b =>
+        var blocks = BlockType.Active.Select(b =>
         {
             rows.TryGetValue(b, out var row);
             return new BlockProgressDto(b, row?.CompletedCount ?? 0, row?.TargetCount ?? client.DailyGoal);

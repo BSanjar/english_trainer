@@ -3,13 +3,14 @@ const LEVELS = ['A1','A2','B1','B2','C1'];
 const LEVEL_LABELS = {A1:'Начальный',A2:'Элементарный',B1:'Средний',B2:'Выше среднего',C1:'Продвинутый'};
 const POS_LABELS = {n:'сущ.',v:'гл.',adj:'прил.',adv:'нареч.',prep:'предл.',pron:'мест.',conj:'союз',det:'опред.',num:'числ.',interj:'межд.',phr:'фраза'};
 const BLOCKS = [
-  {id:'learn', title:'Изучение слов', desc:'Карточки: свайп — если знаешь, тап — посмотреть перевод.', ic:'🗂️'},
-  {id:'mc', title:'Квиз', desc:'Слово на английском → выбери верный перевод.', ic:'🧩'},
-  {id:'type_en', title:'Введи слово', desc:'По переводу набери слово на английском.', ic:'⌨️'},
-  {id:'fill', title:'Заполни пропуск', desc:'Впиши пропущенное слово в примере.', ic:'✏️'},
-  {id:'listen', title:'Аудирование', desc:'Прослушай слово и запиши, что услышал(а).', ic:'🎧'},
-  {id:'speak', title:'Произношение', desc:'Повтори слово вслух — проверим через микрофон.', ic:'🎤'},
+  {id:'learn', num:1, title:'Изучение слов', desc:'Карточки: свайп — если знаешь, тап — посмотреть перевод.', ic:'🗂️'},
+  {id:'mc', num:2, title:'Квиз', desc:'Слово на английском → выбери верный перевод.', ic:'🧩'},
+  {id:'type_en', num:3, title:'Введи слово', desc:'По переводу набери слово на английском.', ic:'⌨️'},
+  {id:'fill', num:4, title:'Заполни пропуск', desc:'Впиши пропущенное слово в примере.', ic:'✏️'},
+  {id:'listen', num:5, title:'Аудирование', desc:'Прослушай слово и запиши, что услышал(а).', ic:'🎧', soon:true},
+  {id:'speak', num:6, title:'Произношение', desc:'Повтори слово вслух — проверим через микрофон.', ic:'🎤', soon:true},
 ];
+const ACTIVE_BLOCKS = BLOCKS.filter(b=>!b.soon);
 const ICONS = {
   home:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1v-9"/></svg>',
   bank:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v13.5"/><path d="M4 19.5A1.5 1.5 0 0 1 5.5 18H19"/><path d="M8 7h7M8 10h7"/></svg>',
@@ -70,7 +71,7 @@ const state = {
   words: [], wordsById: {},
   today: null,
   learnQueue: [], learnFlipped: false, learnQueueLoaded: false, learnTodayCompleted: null, learnTodayTarget: null,
-  practiceMode: null, practicePool: [], practiceIdx: 0, practiceScore:{correct:0,wrong:0},
+  practiceMode: null, practicePool: [], practiceIdx: 0, practiceScore:{correct:0,wrong:0}, practiceDoneSoundPlayed:false,
   bankQuery:'', bankStatus:null, bankPage:1,
 };
 
@@ -105,7 +106,7 @@ function renderCodeScreen(){
   document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
   document.getElementById('view').className='view';
   document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
-    <div class="onboard-title">Добро пожаловать в Lexi</div>
+    <div class="onboard-title">Добро пожаловать в Dari</div>
     <div class="onboard-sub">Представься и введи одноразовый код, который тебе дал преподаватель</div>
     <div style="text-align:left;margin-bottom:14px;">
       <div class="field-label" style="margin-bottom:6px;">Как тебя зовут?</div>
@@ -179,10 +180,10 @@ function renderHelpButton(){
 function showHelpModal(firstTime){
   localStorage.setItem(HELP_KEY, '1');
   document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card">
-    <div class="modal-top"><div class="onboard-title" style="font-size:22px;text-align:left;">${firstTime?'Добро пожаловать!':'Как пользоваться Lexi'}</div>
+    <div class="modal-top"><div class="onboard-title" style="font-size:22px;text-align:left;">${firstTime?'Добро пожаловать!':'Как пользоваться Dari'}</div>
       <button class="icon-btn" onclick="closeModal()">${ICONS.close}</button></div>
     <div class="help-list">
-      <div class="help-item"><div class="help-num">1</div><div><b>6 задач в день</b> — Изучение слов, Квиз, Введи слово, Заполни пропуск, Аудирование, Произношение. Открываются с экрана «Задачи».</div></div>
+      <div class="help-item"><div class="help-num">1</div><div><b>4 задачи в день</b> — 1. Изучение слов, 2. Квиз, 3. Введи слово, 4. Заполни пропуск. Открываются с экрана «Задачи» (Аудирование и Произношение — скоро).</div></div>
       <div class="help-item"><div class="help-num">2</div><div><b>Карточки слов:</b> тапни — увидишь перевод и пример; свайпни вверх — «знаю»/«запомнил»; свайпни вниз — «трудно».</div></div>
       <div class="help-item"><div class="help-num">3</div><div>У каждой задачи своя цель на день — прогресс-бар. Проходи в любом порядке, повторы не ограничены.</div></div>
       <div class="help-item"><div class="help-num">4</div><div>Слова уровня и статистика — в <b>Настройках</b>, в разделе «Категории».</div></div>
@@ -206,15 +207,20 @@ function renderShell(){
   document.getElementById('sidebar').style.display = '';
   document.getElementById('tabbar').style.display = '';
   document.getElementById('sidebar').innerHTML =
-    '<div class="brand"><div class="brand-mark">L</div><div class="brand-name">Lexi</div></div>'+
-    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}</span></button>`).join('')+'</div>'+
+    '<div class="brand"><div class="brand-mark">D</div><div class="brand-name">Dari</div></div>'+
+    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}</span></button>`).join('')+'</div>'+
     '<div class="nav-spacer"></div>'+
     '<div class="sidebar-foot">'+escapeHtml(state.client?.name||'')+(state.client?.name?' · ':'')+'Уровень '+(state.client?.level||'—')+'</div>';
   document.getElementById('tabbar').innerHTML = NAV.map(n=>
     n.main
-      ? `<button class="tab-item tab-item-main${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'"><span class="tab-main-circle">${ICONS[n.icon]}</span><span>${n.label}</span></button>`
-      : `<button class="tab-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`
+      ? `<button class="tab-item tab-item-main${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')"><span class="tab-main-circle">${ICONS[n.icon]}</span><span>${n.label}</span></button>`
+      : `<button class="tab-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label}</span></button>`
   ).join('');
+}
+function navTo(id){
+  feedbackTap();
+  if(location.hash.replace('#','').split('/')[0]===id) return;
+  location.hash = id;
 }
 
 async function route(){
@@ -237,18 +243,6 @@ async function route(){
 const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 function todayLabelRu(){ const d=new Date(); return d.getDate()+' '+MONTHS_RU[d.getMonth()]+' '+d.getFullYear(); }
 
-function todayChipsHtml(today){
-  const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
-  return `<div class="today-chip-grid">${BLOCKS.map(b=>{
-    const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
-    const done = bp.target>0 && bp.completed>=bp.target;
-    return `<div class="today-chip${done?' done':''}" onclick="openBlock('${b.id}')" title="${b.title}">
-      <div class="tc-ic">${done?'✓':b.ic}</div>
-      <div class="tc-label">${b.title}</div>
-      <div class="tc-count">${done?'готово':bp.completed+'/'+bp.target}</div>
-    </div>`;
-  }).join('')}</div>`;
-}
 async function renderHome(el){
   if(state.today) paintHome(el, state.today);
   const today = await api('/api/session/today');
@@ -281,14 +275,12 @@ function paintHome(el, today){
       <div class="home-tasks-head">
         <div>
           <div class="section-title" style="margin:0;">Задачи на сегодня</div>
-          <div class="field-hint" style="margin:3px 0 0;">Выполнено блоков: ${doneBlocks}/6 · ${today.totalCompleted}/${today.totalTarget} (${overallPct}%)</div>
+          <div class="field-hint" style="margin:3px 0 0;">Выполнено блоков: ${doneBlocks}/${ACTIVE_BLOCKS.length} · ${today.totalCompleted}/${today.totalTarget} (${overallPct}%)</div>
         </div>
         <button class="btn btn-primary btn-sm" onclick="location.hash='blocks'">Все задачи →</button>
       </div>
-      <div class="bar-track" style="margin-bottom:14px;"><div class="bar-fill" style="width:${overallPct}%"></div></div>
-      ${todayChipsHtml(today)}
     </div>
-    <div class="section-title" style="margin-top:24px;">Как устроена Lexi</div>
+    <div class="section-title" style="margin-top:24px;">Как устроена Dari</div>
     <div class="info-grid">
       <div class="card info-card">
         <div class="info-ic">📖</div>
@@ -312,24 +304,32 @@ function paintHome(el, today){
 /* ===== tasks / block picker ===== */
 function blockGridHtml(today){
   const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
-  return `<div class="block-grid">
-    ${BLOCKS.map(b=>{
-      const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
-      const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
-      const done = pct>=100;
-      return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
-        <div class="block-ic">${b.ic}</div>
-        <div class="block-body">
-          <div class="block-title">${b.title}${done?' ✓':''}</div>
-          <div class="block-desc">${b.desc}</div>
-          <div class="block-progress">
-            <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-            <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
-          </div>
+  const active = BLOCKS.filter(b=>!b.soon).map(b=>{
+    const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
+    const pct = bp.target>0 ? Math.min(100, Math.round(100*bp.completed/bp.target)) : 0;
+    const done = pct>=100;
+    return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
+      <div class="block-ic">${b.ic}</div>
+      <div class="block-body">
+        <div class="block-title"><span class="block-num">${b.num}.</span>${b.title}${done?' ✓':''}</div>
+        <div class="block-desc">${b.desc}</div>
+        <div class="block-progress">
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+          <div class="block-progress-label">${bp.completed}/${bp.target}${done?' · готово, можно продолжать':''}</div>
         </div>
-      </div>`;
-    }).join('')}
-  </div>`;
+      </div>
+    </div>`;
+  }).join('');
+  const soon = BLOCKS.filter(b=>b.soon).map(b=>
+    `<div class="card block-card block-soon">
+      <div class="block-ic">${b.ic}</div>
+      <div class="block-body">
+        <div class="block-title"><span class="block-num">${b.num}.</span>${b.title} <span class="soon-badge">скоро</span></div>
+        <div class="block-desc">${b.desc}</div>
+      </div>
+    </div>`
+  ).join('');
+  return `<div class="block-grid">${active}${soon}</div>`;
 }
 async function renderBlocks(el){
   if(state.today) paintBlocks(el, state.today);
@@ -356,6 +356,7 @@ function paintBlocks(el, today){
   `;
 }
 function openBlock(id){
+  feedbackTap();
   if(id==='learn'){
     state.learnQueue = []; state.learnQueueLoaded = false; state.learnFlipped = false;
     state.learnTodayCompleted = null; state.learnTodayTarget = null;
@@ -378,7 +379,10 @@ let _beepReady = false;
 function unlockAudio(){
   if(_beepReady) return;
   try{
-    for(let i=0;i<3;i++){
+    // Pre-load and "warm" a small round-robin pool so playback never has to
+    // construct/decode a fresh element mid-interaction (that's what caused
+    // the perceptible lag right when swiping/answering).
+    for(let i=0;i<6;i++){
       const a = new Audio(BEEP_DATA_URI);
       a.preload = 'auto'; a.volume = 0.001;
       a.play().then(()=>{ a.pause(); a.currentTime = 0; a.volume = 1; }).catch(()=>{});
@@ -390,24 +394,41 @@ function unlockAudio(){
 ['pointerdown','touchstart','click','keydown'].forEach(evt=>
   document.addEventListener(evt, unlockAudio, {passive:true, once:true})
 );
-function playBeep(rate){
+let _beepCursor = 0;
+function playBeep(rate, vol){
   try{
-    const a = _beepPool.find(x=>x.paused) || new Audio(BEEP_DATA_URI);
+    const a = _beepPool.length ? _beepPool[_beepCursor++ % _beepPool.length] : new Audio(BEEP_DATA_URI);
     a.currentTime = 0;
     a.playbackRate = rate;
-    a.volume = 1;
+    a.volume = vol==null ? 1 : vol;
     a.play().catch(()=>{});
   }catch(e){}
 }
+function playChime(steps){
+  // steps: [[rate, delayMs, vol], ...] — a short note sequence for richer feedback
+  // than a single flat beep.
+  steps.forEach(([rate, delay, vol])=> delay>0 ? setTimeout(()=>playBeep(rate, vol), delay) : playBeep(rate, vol));
+}
 function feedbackFor(grade){
-  try{ if(navigator.vibrate) navigator.vibrate(grade==='hard' ? [12,40,12] : 16); }catch(e){}
-  if(grade==='hard') playBeep(0.5);
-  else if(grade==='good') playBeep(1.5);
-  else playBeep(2);
+  try{ if(navigator.vibrate) navigator.vibrate(grade==='hard' ? [12,40,12] : grade==='good' ? 16 : [10,30,10]); }catch(e){}
+  if(grade==='hard') playChime([[0.55,0]]);
+  else if(grade==='good') playChime([[1.35,0],[1.9,55]]);
+  else playChime([[1.7,0],[2.3,50],[2.9,95]]);
 }
 function feedbackGoalMet(){
   try{ if(navigator.vibrate) navigator.vibrate([15,60,15,60,25]); }catch(e){}
-  playBeep(1.5); setTimeout(()=>playBeep(2),100);
+  playChime([[1.35,0],[1.7,90],[2.3,180],[2.9,270]]);
+}
+function feedbackCorrect(){
+  try{ if(navigator.vibrate) navigator.vibrate(16); }catch(e){}
+  playChime([[1.6,0],[2.4,60]]);
+}
+function feedbackWrong(){
+  try{ if(navigator.vibrate) navigator.vibrate([14,35,14]); }catch(e){}
+  playChime([[0.5,0],[0.4,90]]);
+}
+function feedbackTap(){
+  playBeep(3, 0.35);
 }
 
 /* ===== learn session (vertical swipe cards) ===== */
@@ -571,6 +592,7 @@ async function logBlockProgress(block, wordId){
 }
 function nextPracticeItem(block, wordId, correct){
   state.practiceScore[correct?'correct':'wrong']++;
+  if(correct) feedbackCorrect(); else feedbackWrong();
   logBlockProgress(block, wordId);
   setTimeout(()=>{ state.practiceIdx++; route(); }, 700);
 }
@@ -714,8 +736,12 @@ async function renderPractice(el){
     state.practicePool = buildPracticePool();
     state.practiceIdx = 0;
     state.practiceScore = {correct:0,wrong:0};
+    state.practiceDoneSoundPlayed = false;
   }
-  if(state.practiceIdx>=state.practicePool.length){ el.innerHTML=practiceDone(); return; }
+  if(state.practiceIdx>=state.practicePool.length){
+    if(!state.practiceDoneSoundPlayed){ state.practiceDoneSoundPlayed = true; feedbackGoalMet(); }
+    el.innerHTML=practiceDone(); return;
+  }
   const w = currentPracticeWord();
   const dispatch = {mc:renderMC, type_en:renderTypeEn, fill:renderFill, listen:renderListen, speak:renderSpeak};
   (dispatch[mode]||renderMC)(el, w);
