@@ -18,6 +18,7 @@ async function boot(){
 }
 
 function renderLogin(){
+  document.querySelector('.admin-wrap').classList.remove('wide');
   document.getElementById('root').innerHTML = `<div class="card" style="padding:28px;">
     <div class="onboard-title" style="text-align:center;">Вход для администратора</div>
     <div class="field-group" style="margin-top:20px;">
@@ -42,6 +43,7 @@ function renderLogin(){
 }
 
 async function renderPanel(username){
+  document.querySelector('.admin-wrap').classList.add('wide');
   document.getElementById('root').innerHTML = `
     <div class="card panel">
       <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -52,18 +54,38 @@ async function renderPanel(username){
       <div id="code-display"></div>
     </div>
     <div class="card panel" style="margin-top:16px;">
+      <div class="section-title">Ученики</div>
+      <div class="table-wrap"><table id="clients-table"><thead><tr><th>Имя</th><th>Уровень</th><th>Цель/день</th><th>Первый вход</th><th>Был(а) в сети</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card panel" style="margin-top:16px;">
       <div class="section-title">Последние коды</div>
-      <table id="codes-table"><thead><tr><th>Код</th><th>Создан</th><th>Истекает</th><th>Статус</th></tr></thead><tbody></tbody></table>
+      <div class="table-wrap"><table id="codes-table"><thead><tr><th>Код</th><th>Создан</th><th>Истекает</th><th>Статус</th><th>Кто вошёл</th></tr></thead><tbody></tbody></table></div>
     </div>`;
   document.getElementById('logout-btn').addEventListener('click', async ()=>{ await api('/api/admin/logout', {method:'POST'}); location.reload(); });
   document.getElementById('gen-btn').addEventListener('click', async ()=>{
     try{
       const code = await api('/api/admin/codes', {method:'POST'});
-      document.getElementById('code-display').innerHTML = `<div class="code-big">${code.code}</div><div class="field-hint" style="text-align:center;">Действует 30 минут, одноразовый. Продиктуй клиенту.</div>`;
+      document.getElementById('code-display').innerHTML = `<div class="code-big">${code.code}</div><div class="field-hint" style="text-align:center;">Действует 30 минут, одноразовый. Продиктуй ученику.</div>`;
       await loadCodes();
     }catch(e){ toast('Не удалось создать код'); }
   });
-  await loadCodes();
+  await Promise.all([loadClients(), loadCodes()]);
+}
+
+async function loadClients(){
+  const clients = await api('/api/admin/clients');
+  const tbody = document.querySelector('#clients-table tbody');
+  if(!clients.length){
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--ink-muted);">Пока никто не заходил</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = clients.map(c=>`<tr>
+    <td>${escapeHtml(c.name||'—')}</td>
+    <td>${escapeHtml(c.level||'—')}</td>
+    <td style="font-family:var(--font-mono);">${c.dailyGoal}</td>
+    <td>${new Date(c.createdAt).toLocaleDateString('ru-RU')}</td>
+    <td>${new Date(c.lastSeenAt).toLocaleString('ru-RU')}</td>
+  </tr>`).join('');
 }
 
 async function loadCodes(){
@@ -71,7 +93,7 @@ async function loadCodes(){
   const tbody = document.querySelector('#codes-table tbody');
   tbody.innerHTML = codes.map(c=>{
     const status = c.usedAt ? 'использован' : (new Date(c.expiresAt) < new Date() ? 'истёк' : 'активен');
-    return `<tr><td style="font-family:var(--font-mono);">${c.code}</td><td>${new Date(c.createdAt).toLocaleString('ru-RU')}</td><td>${new Date(c.expiresAt).toLocaleString('ru-RU')}</td><td>${status}</td></tr>`;
+    return `<tr><td style="font-family:var(--font-mono);">${c.code}</td><td>${new Date(c.createdAt).toLocaleString('ru-RU')}</td><td>${new Date(c.expiresAt).toLocaleString('ru-RU')}</td><td>${status}</td><td>${escapeHtml(c.usedByName||'—')}</td></tr>`;
   }).join('');
 }
 

@@ -21,7 +21,7 @@ public class ClientController : LexiControllerBase
         if (!ValidLevels.Contains(req.Level)) return BadRequest(new { error = "invalid_level" });
         client.Level = req.Level;
         await _db.SaveChangesAsync();
-        return Ok(new ClientDto(client.Id, client.Level, client.DailyGoal));
+        return Ok(new ClientDto(client.Id, client.Name, client.Level, client.DailyGoal));
     }
 
     [HttpPut("goal")]
@@ -30,6 +30,6 @@ public class ClientController : LexiControllerBase
         if (!TryGetClient(out var client)) return Unauthorized();
         client.DailyGoal = Math.Clamp(req.DailyGoal, 5, 200);
         await _db.SaveChangesAsync();
-        return Ok(new ClientDto(client.Id, client.Level, client.DailyGoal));
+        return Ok(new ClientDto(client.Id, client.Name, client.Level, client.DailyGoal));
     }
 }

@@ -18,6 +18,7 @@ public class StatsController : LexiControllerBase
     public async Task<IActionResult> Month([FromQuery] int? year, [FromQuery] int? month)
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         var now = DateTime.UtcNow;
         var y = year ?? now.Year;
         var m = month ?? now.Month;
@@ -25,14 +26,17 @@ public class StatsController : LexiControllerBase
         var end = start.AddMonths(1);
 
         var rows = await _db.DailyBlockActivities
-            .Where(a => a.ClientId == client.Id && a.Date >= start && a.Date < end)
+            .Where(a => a.ClientId == client.Id && a.Level == client.Level && a.Date >= start && a.Date < end)
             .GroupBy(a => a.Date)
             .Select(g => new DayStatDto(g.Key, g.Sum(x => x.CompletedCount), g.Sum(x => x.TargetCount)))
             .ToListAsync();
 
-        var streak = await ComputeStreakAsync(client.Id);
+        var streak = await ComputeStreakAsync(client.Id, client.Level);
 
-        var progress = await _db.ClientWordProgress.Where(p => p.ClientId == client.Id).ToListAsync();
+        var progress = await _db.ClientWordProgress
+            .Where(p => p.ClientId == client.Id)
+            .Join(_db.Words.Where(w => w.Level == client.Level), p => p.WordId, w => w.Id, (p, w) => p)
+            .ToListAsync();
         var totalCorrect = progress.Sum(p => p.Correct);
         var totalWrong = progress.Sum(p => p.Wrong);
         var accuracy = (totalCorrect + totalWrong) > 0 ? 100.0 * totalCorrect / (totalCorrect + totalWrong) : 0;
@@ -41,10 +45,10 @@ public class StatsController : LexiControllerBase
         return Ok(new MonthStatsResponse(rows, streak, Math.Round(accuracy, 1), mastered, progress.Count - mastered));
     }
 
-    private async Task<int> ComputeStreakAsync(Guid clientId)
+    private async Task<int> ComputeStreakAsync(Guid clientId, string level)
     {
         var activeDates = (await _db.DailyBlockActivities
-            .Where(a => a.ClientId == clientId && a.CompletedCount > 0)
+            .Where(a => a.ClientId == clientId && a.Level == level && a.CompletedCount > 0)
             .Select(a => a.Date)
             .Distinct()
             .ToListAsync())

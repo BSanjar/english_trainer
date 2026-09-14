@@ -60,6 +60,7 @@ public class SessionController : LexiControllerBase
     public async Task<IActionResult> Review([FromBody] ReviewRequest req)
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         if (req.Grade is not (Grade.Hard or Grade.Good or Grade.Easy))
             return BadRequest(new { error = "invalid_grade" });
 
@@ -69,7 +70,7 @@ public class SessionController : LexiControllerBase
         var updated = _srs.Review(existing, client.Id, req.WordId, req.Grade);
         if (wasNew) _db.ClientWordProgress.Add(updated);
 
-        await BumpBlockAsync(client.Id, BlockType.Learn, req.WordId, client.DailyGoal);
+        await BumpBlockAsync(client.Id, client.Level!, BlockType.Learn, req.WordId, client.DailyGoal);
         await _db.SaveChangesAsync();
 
         return Ok(new { updated.Ivl, updated.Due, status = SrsService.StatusOf(updated) });
@@ -79,10 +80,11 @@ public class SessionController : LexiControllerBase
     public async Task<IActionResult> LogProgress([FromBody] ProgressRequest req)
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         if (!BlockType.All.Contains(req.Block) || req.Block == BlockType.Learn)
             return BadRequest(new { error = "invalid_block" });
 
-        var activity = await BumpBlockAsync(client.Id, req.Block, req.WordId, client.DailyGoal);
+        var activity = await BumpBlockAsync(client.Id, client.Level, req.Block, req.WordId, client.DailyGoal);
         await _db.SaveChangesAsync();
         return Ok(new BlockProgressDto(req.Block, activity.CompletedCount, activity.TargetCount));
     }
@@ -91,9 +93,10 @@ public class SessionController : LexiControllerBase
     public async Task<IActionResult> Today()
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var rows = await _db.DailyBlockActivities
-            .Where(a => a.ClientId == client.Id && a.Date == today)
+            .Where(a => a.ClientId == client.Id && a.Level == client.Level && a.Date == today)
             .ToDictionaryAsync(a => a.Block);
 
         var blocks = BlockType.All.Select(b =>
@@ -105,14 +108,14 @@ public class SessionController : LexiControllerBase
         return Ok(new TodayResponse(blocks, blocks.Sum(b => b.Completed), blocks.Sum(b => b.Target)));
     }
 
-    private async Task<DailyBlockActivity> BumpBlockAsync(Guid clientId, string block, int? wordId, int dailyGoal)
+    private async Task<DailyBlockActivity> BumpBlockAsync(Guid clientId, string level, string block, int? wordId, int dailyGoal)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var activity = await _db.DailyBlockActivities
-            .FirstOrDefaultAsync(a => a.ClientId == clientId && a.Date == today && a.Block == block);
+            .FirstOrDefaultAsync(a => a.ClientId == clientId && a.Level == level && a.Date == today && a.Block == block);
         if (activity == null)
         {
-            activity = new DailyBlockActivity { ClientId = clientId, Date = today, Block = block, TargetCount = dailyGoal };
+            activity = new DailyBlockActivity { ClientId = clientId, Level = level, Date = today, Block = block, TargetCount = dailyGoal };
             _db.DailyBlockActivities.Add(activity);
         }
         activity.CompletedCount += 1;

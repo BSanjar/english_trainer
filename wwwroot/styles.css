@@ -47,7 +47,7 @@
   --shadow:0 1px 2px rgba(0,0,0,.25),0 10px 28px -10px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;}
+html,body{margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 body{background:var(--bg);color:var(--ink);font-family:var(--font-body);}
 .app{display:flex;min-height:100vh;background:var(--bg);color:var(--ink);}
 ::selection{background:var(--accent-soft);color:var(--ink);}
@@ -141,6 +141,11 @@ svg{display:block;}
 .bar-fill{height:100%;border-radius:99px;background:var(--accent);transition:width .3s ease;}
 .level-row .lv-count{width:64px;flex:none;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--ink-muted);}
 .chart-wrap{padding:20px 22px;}
+.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.info-card{padding:18px 20px;display:flex;flex-direction:column;gap:6px;}
+.info-ic{font-size:20px;line-height:1;}
+.info-title{font-weight:700;font-size:14px;}
+.info-text{font-size:12.5px;color:var(--ink-muted);line-height:1.5;}
 
 /* ---------- block picker ---------- */
 .overall-progress{padding:20px 22px;margin-bottom:20px;}
@@ -195,7 +200,8 @@ svg{display:block;}
 .search-input{flex:1;min-width:220px;padding:11px 16px;border-radius:99px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:14px;}
 .search-input:focus{outline:2px solid var(--accent);outline-offset:1px;}
 .chip-select{padding:10px 14px;border-radius:99px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px;font-weight:600;}
-.bank-table{width:100%;border-collapse:collapse;}
+.bank-table-wrap{overflow-x:auto;}
+.bank-table{width:100%;min-width:560px;border-collapse:collapse;}
 .bank-row{cursor:pointer;border-bottom:1px solid var(--border);}
 .bank-row:hover{background:var(--surface-2);}
 .bank-row td{padding:11px 10px;font-size:14px;vertical-align:middle;}
@@ -265,6 +271,7 @@ input[type=range]{flex:1;accent-color:var(--accent);}
   .cta-row{grid-template-columns:1fr;}
   .two-col{grid-template-columns:1fr;}
   .block-grid{grid-template-columns:1fr 1fr;}
+  .info-grid{grid-template-columns:1fr;}
   .tabbar{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface-3);border-top:1px solid var(--border);justify-content:space-around;padding:6px 4px 8px;z-index:40;}
   .tab-item{display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;color:var(--ink-muted);font-size:10.5px;font-weight:700;padding:6px 4px;flex:1;}
   .tab-item.active{color:var(--accent);}

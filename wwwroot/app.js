@@ -116,17 +116,24 @@ function renderCodeScreen(){
   document.getElementById('view').className='view';
   document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
     <div class="onboard-title">Добро пожаловать в Lexi</div>
-    <div class="onboard-sub">Введи одноразовый код, который тебе дал преподаватель</div>
-    <input class="code-input" id="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autofocus>
+    <div class="onboard-sub">Представься и введи одноразовый код, который тебе дал преподаватель</div>
+    <div style="text-align:left;margin-bottom:14px;">
+      <div class="field-label" style="margin-bottom:6px;">Как тебя зовут?</div>
+      <input class="search-input" id="name-input" style="width:100%;" placeholder="Имя" maxlength="60" autofocus>
+    </div>
+    <input class="code-input" id="code-input" maxlength="6" inputmode="numeric" placeholder="000000">
     <div class="onboard-error" id="code-error"></div>
     <button class="btn btn-primary btn-block" id="code-submit" style="margin-top:14px;">Войти</button>
   </div></div>`;
+  const nameInput = document.getElementById('name-input');
   const input = document.getElementById('code-input');
   const submit = async ()=>{
+    const name = nameInput.value.trim();
     const code = input.value.trim();
+    if(name.length===0){ document.getElementById('code-error').textContent='Укажи имя'; nameInput.focus(); return; }
     if(code.length!==6){ document.getElementById('code-error').textContent='Код должен содержать 6 цифр'; return; }
     try{
-      const res = await api('/api/auth/redeem', {method:'POST', body: JSON.stringify({code})});
+      const res = await api('/api/auth/redeem', {method:'POST', body: JSON.stringify({code, name})});
       localStorage.setItem(TOKEN_KEY, res.deviceToken);
       state.client = res.client;
       if(!res.client.level){ renderLevelPicker(); } else { await startApp(); }
@@ -136,6 +143,7 @@ function renderCodeScreen(){
   };
   document.getElementById('code-submit').addEventListener('click', submit);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+  nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') input.focus(); });
 }
 
 function renderLevelPicker(){
@@ -184,7 +192,7 @@ function renderShell(){
     '<div class="brand"><div class="brand-mark">L</div><div class="brand-name">Lexi</div></div>'+
     '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`).join('')+'</div>'+
     '<div class="nav-spacer"></div>'+
-    '<div class="sidebar-foot">Уровень: '+(state.client?.level||'—')+'</div>';
+    '<div class="sidebar-foot">'+escapeHtml(state.client?.name||'')+(state.client?.name?' · ':'')+'Уровень '+(state.client?.level||'—')+'</div>';
   document.getElementById('tabbar').innerHTML = NAV.map(n=>
     `<button class="tab-item${navViewId===n.id?' active':''}" onclick="location.hash='${n.id}'">${ICONS[n.icon]}<span>${n.label}</span></button>`
   ).join('');
@@ -217,9 +225,11 @@ async function renderHome(el){
   const inProgress = state.words.filter(w=>w.status!=='new').length;
   const overallPct = today.totalTarget>0 ? Math.min(100, Math.round(100*today.totalCompleted/today.totalTarget)) : 0;
 
+  const firstName = (state.client.name||'').split(' ')[0];
+
   el.innerHTML = `
     <div class="page-head"><div>
-      <div class="page-title">Привет!</div>
+      <div class="page-title">Привет${firstName?', '+escapeHtml(firstName):''}!</div>
       <div class="page-sub">${todayLabelRu()} · уровень ${state.client.level} · в изучении ${inProgress} из ${state.words.length} слов</div>
     </div></div>
     <div class="stat-grid">
@@ -232,6 +242,24 @@ async function renderHome(el){
       <div class="cta-title">Начать занятие</div>
       <div class="cta-sub">6 блоков на сегодня — заполни прогресс-бар по каждому</div>
       <div><button class="btn btn-primary" onclick="location.hash='blocks'">Поехали →</button></div>
+    </div>
+    <div class="section-title" style="margin-top:28px;">Как устроена Lexi</div>
+    <div class="info-grid">
+      <div class="card info-card">
+        <div class="info-ic">📖</div>
+        <div class="info-title">Частотный словарь</div>
+        <div class="info-text">2500+ слов подобраны по принципу Oxford 3000/5000 — не любые слова, а самые нужные: от базовых (A1) до продвинутых (C1), с переводом и живым примером.</div>
+      </div>
+      <div class="card info-card">
+        <div class="info-ic">🧠</div>
+        <div class="info-title">Интервальное повторение</div>
+        <div class="info-text">Слово возвращается к тебе прямо перед тем, как ты готов(а) его забыть (алгоритм SM-2). Меньше зубрёжки — крепче память надолго.</div>
+      </div>
+      <div class="card info-card">
+        <div class="info-ic">🔄</div>
+        <div class="info-title">Input → Output</div>
+        <div class="info-text">Сначала пробуешь вспомнить слово сам(а) — и только потом смотришь перевод. Активное вспоминание работает в разы лучше, чем просто чтение.</div>
+      </div>
     </div>
   `;
 }
@@ -563,7 +591,7 @@ function updateBankResults(){
   const list = bankFiltered(); const pageSize=100;
   const shown = list.slice(0, state.bankPage*pageSize);
   container.innerHTML = `<div class="bank-count">${list.length} слов найдено</div>
-    <table class="bank-table"><tbody>${shown.map(bankRowHtml).join('')}</tbody></table>
+    <div class="bank-table-wrap"><table class="bank-table"><tbody>${shown.map(bankRowHtml).join('')}</tbody></table></div>
     ${shown.length<list.length ? `<div class="load-more"><button class="btn btn-outline" onclick="state.bankPage++;updateBankResults();">Показать ещё (${list.length-shown.length})</button></div>` : ''}`;
 }
 function renderBank(el){

@@ -61,7 +61,7 @@ public class LexiDbContext : DbContext
         b.Entity<DailyBlockActivity>(e =>
         {
             e.ToTable("client_daily_block_activity");
-            e.HasKey(x => new { x.ClientId, x.Date, x.Block });
+            e.HasKey(x => new { x.ClientId, x.Level, x.Date, x.Block });
         });
     }
 }

@@ -15,6 +15,7 @@ public static class BlockType
 public class DailyBlockActivity
 {
     public Guid ClientId { get; set; }
+    public string Level { get; set; } = "";
     public DateOnly Date { get; set; }
     public string Block { get; set; } = "";
     public int CompletedCount { get; set; } = 0;

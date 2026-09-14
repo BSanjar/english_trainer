@@ -10,7 +10,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Lexi.Controllers;
 
 public record AdminLoginRequest(string Username, string Password);
-public record CodeDto(string Code, DateTime CreatedAt, DateTime ExpiresAt, DateTime? UsedAt);
+public record CodeDto(string Code, DateTime CreatedAt, DateTime ExpiresAt, DateTime? UsedAt, string? UsedByName);
+public record ClientListDto(Guid Id, string Name, string? Level, int DailyGoal, DateTime CreatedAt, DateTime LastSeenAt);
 
 [ApiController]
 [Route("api/admin")]
@@ -66,7 +67,7 @@ public class AdminController : ControllerBase
         _db.OneTimeCodes.Add(otc);
         await _db.SaveChangesAsync();
 
-        return Ok(new CodeDto(otc.Code, otc.CreatedAt, otc.ExpiresAt, otc.UsedAt));
+        return Ok(new CodeDto(otc.Code, otc.CreatedAt, otc.ExpiresAt, otc.UsedAt, null));
     }
 
     [HttpGet("codes")]
@@ -76,8 +77,19 @@ public class AdminController : ControllerBase
         var codes = await _db.OneTimeCodes
             .OrderByDescending(c => c.CreatedAt)
             .Take(30)
-            .Select(c => new CodeDto(c.Code, c.CreatedAt, c.ExpiresAt, c.UsedAt))
+            .Select(c => new CodeDto(c.Code, c.CreatedAt, c.ExpiresAt, c.UsedAt, c.UsedByClient != null ? c.UsedByClient.Name : null))
             .ToListAsync();
         return Ok(codes);
+    }
+
+    [HttpGet("clients")]
+    [Authorize(AuthenticationSchemes = "AdminCookie")]
+    public async Task<IActionResult> ListClients()
+    {
+        var clients = await _db.Clients
+            .OrderByDescending(c => c.LastSeenAt)
+            .Select(c => new ClientListDto(c.Id, c.Name, c.Level, c.DailyGoal, c.CreatedAt, c.LastSeenAt))
+            .ToListAsync();
+        return Ok(clients);
     }
 }
