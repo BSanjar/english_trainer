@@ -166,9 +166,7 @@ async function startApp(){
 
 const NAV = [
   {id:'home', label:'Главная', icon:'home'},
-  {id:'bank', label:'Банк слов', icon:'bank'},
   {id:'blocks', label:'Задачи', icon:'tasks', main:true},
-  {id:'stats', label:'Статистика', icon:'stats'},
   {id:'settings', label:'Настройки', icon:'settings'},
 ];
 function currentViewId(){ return (location.hash.replace('#','').split('/')[0]) || 'home'; }
@@ -176,7 +174,7 @@ function currentViewArg(){ return location.hash.split('/')[1] || null; }
 
 function renderShell(){
   const view = currentViewId();
-  const navViewId = ['session','practice'].includes(view) ? 'blocks' : view;
+  const navViewId = ['session','practice'].includes(view) ? 'blocks' : (['bank','stats'].includes(view) ? 'settings' : view);
   document.getElementById('sidebar').style.display = '';
   document.getElementById('tabbar').style.display = '';
   document.getElementById('sidebar').innerHTML =
@@ -211,33 +209,54 @@ async function route(){
 const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 function todayLabelRu(){ const d=new Date(); return d.getDate()+' '+MONTHS_RU[d.getMonth()]+' '+d.getFullYear(); }
 
+function todayChipsHtml(today){
+  const byBlock = {}; today.blocks.forEach(b=>byBlock[b.block]=b);
+  return `<div class="today-chip-grid">${BLOCKS.map(b=>{
+    const bp = byBlock[b.id] || {completed:0, target: state.client.dailyGoal};
+    const done = bp.target>0 && bp.completed>=bp.target;
+    return `<div class="today-chip${done?' done':''}" onclick="openBlock('${b.id}')" title="${b.title}">
+      <div class="tc-ic">${done?'✓':b.ic}</div>
+      <div class="tc-label">${b.title}</div>
+      <div class="tc-count">${done?'готово':bp.completed+'/'+bp.target}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
 async function renderHome(el){
   const today = await api('/api/session/today');
   state.today = today;
   const mastered = state.words.filter(w=>w.status==='mastered').length;
   const inProgress = state.words.filter(w=>w.status!=='new').length;
+  const remaining = state.words.length - inProgress;
   const overallPct = today.totalTarget>0 ? Math.min(100, Math.round(100*today.totalCompleted/today.totalTarget)) : 0;
+  const doneBlocks = today.blocks.filter(b=>b.target>0 && b.completed>=b.target).length;
 
   const firstName = (state.client.name||'').split(' ')[0];
 
   el.innerHTML = `
-    <div class="page-head"><div>
+    <div class="home-head">
       <div class="page-title">Привет${firstName?', '+escapeHtml(firstName):''}!</div>
-      <div class="page-sub">${todayLabelRu()} · уровень ${state.client.level} · в изучении ${inProgress} из ${state.words.length} слов</div>
-    </div></div>
-    <div class="stat-grid">
-      <div class="card stat-card"><div class="stat-num">${overallPct}%</div><div class="stat-label">Прогресс за сегодня</div></div>
-      <div class="card stat-card"><div class="stat-num">${mastered}</div><div class="stat-label">Освоено твёрдо</div></div>
-      <div class="card stat-card"><div class="stat-num">${inProgress}</div><div class="stat-label">В изучении</div></div>
-      <div class="card stat-card"><div class="stat-num">${state.words.length}</div><div class="stat-label">Всего слов (${state.client.level})</div></div>
+      <div class="home-head-row">
+        <span class="page-sub">${todayLabelRu()}</span>
+        <span class="pill pill-level-${state.client.level} level-pill-big">Уровень ${state.client.level}</span>
+      </div>
     </div>
-    <div class="page-head" style="margin-top:8px;"><div><div class="section-title" style="margin:0;">Задачи на сегодня</div></div></div>
-    <div class="card overall-progress">
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--ink-muted);"><span>Общий прогресс</span><span>${overallPct}%</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${overallPct}%"></div></div>
+    <div class="compact-stat-row">
+      <div class="compact-stat"><div class="cs-num">${inProgress}</div><div class="cs-label">Изучено</div></div>
+      <div class="compact-stat"><div class="cs-num">${remaining}</div><div class="cs-label">Осталось</div></div>
+      <div class="compact-stat"><div class="cs-num">${mastered}</div><div class="cs-label">Освоено твёрдо</div></div>
     </div>
-    ${blockGridHtml(today)}
-    <div class="section-title" style="margin-top:28px;">Как устроена Lexi</div>
+    <div class="card home-tasks-card">
+      <div class="home-tasks-head">
+        <div>
+          <div class="section-title" style="margin:0;">Задачи на сегодня</div>
+          <div class="field-hint" style="margin:3px 0 0;">Выполнено блоков: ${doneBlocks}/6 · ${today.totalCompleted}/${today.totalTarget} (${overallPct}%)</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="location.hash='blocks'">Все задачи →</button>
+      </div>
+      <div class="bar-track" style="margin-bottom:14px;"><div class="bar-fill" style="width:${overallPct}%"></div></div>
+      ${todayChipsHtml(today)}
+    </div>
+    <div class="section-title" style="margin-top:24px;">Как устроена Lexi</div>
     <div class="info-grid">
       <div class="card info-card">
         <div class="info-ic">📖</div>
@@ -369,18 +388,21 @@ async function renderLearnSession(el){
   el.innerHTML = `<div class="session-shell">
     ${backRow}${goalBar}
     <div class="flash-stage">
-      <div class="swipe-zone up" id="zone-up"><span class="sz-arrow">↑</span><span class="sz-label">${flipped?'Запомнил':'Знаю'}</span></div>
-      <div class="swipe-zone down" id="zone-down"><span class="sz-arrow">↓</span><span class="sz-label">Трудно</span></div>
       <div class="flash" id="flash-card">
+        <div class="swipe-zone up" id="zone-up"><span class="sz-arrow">↑</span><span class="sz-label">${flipped?'Запомнил':'Знаю'}</span></div>
+        <div class="swipe-zone down" id="zone-down"><span class="sz-arrow">↓</span><span class="sz-label">Трудно</span></div>
         <div class="flash-badges"><span class="pill pill-level-${w.level}">${w.level}</span>
           <div class="right-badges"><button class="icon-btn" onclick="event.stopPropagation();speak('${w.word.replace(/'/g,"")}')">${ICONS.speak}</button></div></div>
-        <div class="flash-word">${escapeHtml(w.word)}</div>
-        <div class="flash-ipa">${escapeHtml(w.ipa)} · ${POS_LABELS[w.pos]||w.pos}</div>
-        ${flipped ? `
-          <div class="flash-ru">${escapeHtml(w.ru)}</div>
-          <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
-          <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
-        ` : `<div class="flash-hint">тапни — посмотреть перевод</div>`}
+        <div class="flash-content">
+          <div class="flash-word">${escapeHtml(w.word)}</div>
+          <div class="flash-ipa">${escapeHtml(w.ipa)} · ${POS_LABELS[w.pos]||w.pos}</div>
+          ${flipped ? `
+            <div class="flash-ru">${escapeHtml(w.ru)}</div>
+            <div class="flash-ex">${highlightWord(escapeHtml(w.exampleEn), w.word)}</div>
+            <div class="flash-ex-ru">${escapeHtml(w.exampleRu)}</div>
+          ` : ''}
+        </div>
+        ${flipped ? '' : `<div class="flash-hint">тапни — посмотреть перевод</div>`}
       </div>
     </div>
   </div>`;
@@ -412,10 +434,10 @@ function attachSwipeHandlers(cardEl){
     dragState.dy = e.clientY - dragState.startY;
     if(Math.abs(dragState.dx)>6 || Math.abs(dragState.dy)>6) dragState.moved = true;
     cardEl.style.transform = `translate(${dragState.dx*0.25}px, ${dragState.dy}px) rotate(${dragState.dx/28}deg)`;
-    if(zoneUp) zoneUp.style.opacity = 0.14 + (dragState.dy<0 ? Math.min(0.7, -dragState.dy/THRESH*0.7) : 0);
-    if(zoneDown) zoneDown.style.opacity = 0.14 + (dragState.dy>0 ? Math.min(0.7, dragState.dy/THRESH*0.7) : 0);
+    if(zoneUp) zoneUp.style.opacity = 0.55 + (dragState.dy<0 ? Math.min(0.42, -dragState.dy/THRESH*0.42) : 0);
+    if(zoneDown) zoneDown.style.opacity = 0.55 + (dragState.dy>0 ? Math.min(0.42, dragState.dy/THRESH*0.42) : 0);
   });
-  const resetZones = ()=>{ if(zoneUp) zoneUp.style.opacity=0.14; if(zoneDown) zoneDown.style.opacity=0.14; };
+  const resetZones = ()=>{ if(zoneUp) zoneUp.style.opacity=''; if(zoneDown) zoneDown.style.opacity=''; };
   const finish = e=>{
     if(!dragState) return;
     const {dx, dy, moved} = dragState;
@@ -430,6 +452,7 @@ function attachSwipeHandlers(cardEl){
     if(vertical && Math.abs(dy) > THRESH){
       const goingUp = dy < 0;
       const grade = goingUp ? (state.learnFlipped ? 'good' : 'easy') : 'hard';
+      feedbackFor(grade);
       cardEl.style.transition = 'transform .28s ease, opacity .28s ease';
       cardEl.style.transform = `translate(${dx*0.4}px, ${goingUp?-700:700}px) rotate(${dx/28}deg)`;
       cardEl.style.opacity = '0';
@@ -461,7 +484,6 @@ function showGoalMetModal(){
 async function gradeLearn(grade){
   const w = state.learnQueue[0];
   if(!w) return;
-  feedbackFor(grade);
   try{ await api('/api/session/review', {method:'POST', body: JSON.stringify({wordId:w.id, grade})}); }
   catch(e){ toast('Не удалось сохранить прогресс'); }
   state.learnQueue.shift();
@@ -668,7 +690,8 @@ function updateBankResults(){
     ${shown.length<list.length ? `<div class="load-more"><button class="btn btn-outline" onclick="state.bankPage++;updateBankResults();">Показать ещё (${list.length-shown.length})</button></div>` : ''}`;
 }
 function renderBank(el){
-  el.innerHTML = `<div class="page-head"><div><div class="page-title">Банк слов</div><div class="page-sub">${state.words.length} слов уровня ${state.client.level}</div></div></div>
+  el.innerHTML = `<button class="btn btn-ghost btn-sm session-back" onclick="location.hash='settings'">← Настройки</button>
+    <div class="page-head"><div><div class="page-title">Слова уровня <span class="pill pill-level-${state.client.level}">${state.client.level}</span></div><div class="page-sub">${state.words.length} слов</div></div></div>
     <div class="bank-controls">
       <input class="search-input" id="bank-search" placeholder="Искать слово или перевод…" value="${escapeHtml(state.bankQuery)}">
       <select class="chip-select" id="bank-status-sel">
@@ -729,7 +752,8 @@ async function renderStats(el){
     const row = byDate[key];
     cells.push(`<div class="heat-cell" style="background:${heatColor(row?.completed||0, row?.target||state.client.dailyGoal)}" title="${key}: ${row?.completed||0}/${row?.target||0}"></div>`);
   }
-  el.innerHTML = `<div class="page-head"><div><div class="page-title">Статистика</div><div class="page-sub">Твой прогресс в изучении</div></div></div>
+  el.innerHTML = `<button class="btn btn-ghost btn-sm session-back" onclick="location.hash='settings'">← Настройки</button>
+    <div class="page-head"><div><div class="page-title">Статистика</div><div class="page-sub">Твой прогресс в изучении</div></div></div>
     <div class="stat-grid">
       <div class="card stat-card"><div class="stat-num">${data.totalMastered}</div><div class="stat-label">Освоено</div></div>
       <div class="card stat-card"><div class="stat-num">${data.totalInProgress}</div><div class="stat-label">В изучении</div></div>
@@ -750,6 +774,17 @@ function renderSettings(el){
         <div class="level-grid" style="grid-template-columns:repeat(5,1fr);">${LEVELS.map(lv=>`<button class="level-btn ${c.level===lv?'on':''}" style="${c.level===lv?'border-color:var(--accent);background:var(--accent-soft);':''}" onclick="changeLevel('${lv}')"><div class="lv-code">${lv}</div></button>`).join('')}</div></div>
       <div class="field-group"><div class="field-label">Цель в день (на каждый блок)</div>
         <div class="slider-row"><input type="range" min="5" max="50" step="5" value="${c.dailyGoal}" id="goal-range"><div class="range-val" id="goal-val">${c.dailyGoal}</div></div></div>
+    </div>
+    <div class="section-title" style="margin-top:22px;">Категории</div>
+    <div class="card panel" style="padding:8px 20px;">
+      <div class="category-row" onclick="location.hash='bank'">
+        <div class="cat-row-main">${ICONS.bank}<div><div class="cat-row-title">Слова уровня <span class="pill pill-level-${c.level}">${c.level}</span></div><div class="field-hint" style="margin:2px 0 0;">${state.words.length} слов, поиск и статусы</div></div></div>
+        <span class="cat-row-arrow">›</span>
+      </div>
+      <div class="category-row" onclick="location.hash='stats'">
+        <div class="cat-row-main">${ICONS.stats}<div><div class="cat-row-title">Статистика</div><div class="field-hint" style="margin:2px 0 0;">Прогресс, точность, календарь занятий</div></div></div>
+        <span class="cat-row-arrow">›</span>
+      </div>
     </div>`;
   document.getElementById('goal-range').addEventListener('input', e=>{ document.getElementById('goal-val').textContent=e.target.value; });
   document.getElementById('goal-range').addEventListener('change', async e=>{
