@@ -24,6 +24,20 @@ const ICONS = {
   close:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>',
 };
 
+/* ===== brand mark: a speech-bubble badge with the "D" monogram ===== */
+function logoSvg(size){
+  const s = size || 34;
+  const gid = 'dariGrad'+Math.random().toString(36).slice(2,8);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="${gid}" x1="2" y1="2" x2="38" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/>
+    </linearGradient></defs>
+    <rect x="2" y="2" width="36" height="27" rx="10" fill="url(#${gid})"/>
+    <path d="M10 29 L10 37 L18.5 29 Z" fill="url(#${gid})"/>
+    <text x="20" y="22.5" text-anchor="middle" font-family="Fraunces, Georgia, serif" font-weight="700" font-size="17" fill="var(--accent-ink)">D</text>
+  </svg>`;
+}
+
 /* ===== API ===== */
 function authHeaders(){
   const t = localStorage.getItem(TOKEN_KEY);
@@ -106,6 +120,7 @@ function renderCodeScreen(){
   document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
   document.getElementById('view').className='view';
   document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
+    <div class="onboard-logo">${logoSvg(56)}</div>
     <div class="onboard-title">Добро пожаловать в Dari</div>
     <div class="onboard-sub">Представься и введи одноразовый код, который тебе дал преподаватель</div>
     <div style="text-align:left;margin-bottom:14px;">
@@ -207,7 +222,7 @@ function renderShell(){
   document.getElementById('sidebar').style.display = '';
   document.getElementById('tabbar').style.display = '';
   document.getElementById('sidebar').innerHTML =
-    '<div class="brand"><div class="brand-mark">D</div><div class="brand-name">Dari</div></div>'+
+    '<div class="brand"><div class="brand-mark">'+logoSvg(34)+'</div><div class="brand-name">Dari</div></div>'+
     '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}</span></button>`).join('')+'</div>'+
     '<div class="nav-spacer"></div>'+
     '<div class="sidebar-foot">'+escapeHtml(state.client?.name||'')+(state.client?.name?' · ':'')+'Уровень '+(state.client?.level||'—')+'</div>';
