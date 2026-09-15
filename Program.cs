@@ -46,7 +46,18 @@ using (var scope = app.Services.CreateScope())
 
 app.UseSerilogRequestLogging();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+// No cache-control was set at all, so mobile browsers (Safari in particular)
+// were free to keep serving app.js/index.html from their own heuristic cache
+// for a long time after a deploy, well past the ETag actually changing.
+// no-cache forces revalidation on every load (fast 304s when unchanged)
+// instead of trusting a stale copy.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 
 app.UseAuthentication();
 app.UseMiddleware<ClientAuthMiddleware>();

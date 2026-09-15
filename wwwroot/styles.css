@@ -209,6 +209,11 @@ svg{display:block;}
   touch-action:none;user-select:none;cursor:grab;overflow:hidden;z-index:2;
 }
 .flash.swiping{transition:none;cursor:grabbing;}
+/* Practice screens (quiz/type/fill/listen/speak) reuse .flash for the
+   shared card look, but don't need the swipe card's big top/bottom padding
+   reserved for the up/down swipe-zone chevrons - that padding alone ate
+   ~140px of vertical space that's sorely needed when the keyboard is open. */
+.flash.flash-compact{min-height:0;padding:26px 24px;touch-action:auto;user-select:auto;cursor:default;}
 .flash-badges{position:absolute;top:18px;left:20px;right:20px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:1;}
 .flash-badges .right-badges{display:flex;gap:8px;align-items:center;pointer-events:auto;}
 .flash-word{font-family:var(--font-display);font-size:44px;font-weight:600;letter-spacing:-.01em;line-height:1.1;}
@@ -279,7 +284,7 @@ svg{display:block;}
 /* ---------- practice item screens ---------- */
 .practice-shell{max-width:600px;margin:0 auto;}
 .practice-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
-.score-pill{font-family:var(--font-mono);font-size:13px;color:var(--ink-muted);}
+.score-pill{font-family:var(--font-mono);font-size:13px;color:var(--ink-muted);margin-right:44px;}
 .mc-options{display:grid;gap:10px;margin-top:22px;}
 .mc-opt{text-align:left;padding:14px 16px;border-radius:var(--radius-s);border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:15px;font-weight:600;}
 .mc-opt:hover{background:var(--surface-2);}
@@ -389,6 +394,13 @@ input[type=range]{flex:1;accent-color:var(--accent);}
 }
 @media (max-width:520px){
   .flash-word{font-size:32px;}
+  /* Tighter onboarding card so title+inputs+button all still fit once the
+     on-screen keyboard eats ~45% of the viewport height on a phone. */
+  .onboard-wrap{padding:14px 16px;}
+  .onboard-card{padding:22px 20px;}
+  .onboard-logo{margin-bottom:8px;}
+  .onboard-title{font-size:20px;margin-bottom:5px;}
+  .onboard-sub{font-size:12.5px;margin-bottom:14px;}
 }
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:.001ms !important;transition-duration:.001ms !important;}

@@ -148,7 +148,7 @@ function renderCodeScreen(){
   document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
   document.getElementById('view').className='view';
   document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
-    <div class="onboard-logo">${logoSvg(56)}</div>
+    <div class="onboard-logo">${logoSvg(44)}</div>
     <div class="onboard-title">Добро пожаловать в Dari</div>
     <div class="onboard-sub">Представься и введи одноразовый код, который тебе дал преподаватель</div>
     <div style="text-align:left;margin-bottom:14px;">
@@ -670,7 +670,7 @@ function mcOptions(w){
 function renderMC(el, w){
   currentMcOptions = mcOptions(w);
   el.innerHTML = practiceHeader()+
-    `<div class="card flash" style="min-height:200px;position:relative;"><div style="position:absolute;top:16px;right:16px;"><button class="icon-btn" onclick="speak('${w.word.replace(/'/g,'')}')">${ICONS.speak}</button></div>
+    `<div class="card flash flash-compact" style="position:relative;"><div style="position:absolute;top:16px;right:16px;"><button class="icon-btn" onclick="speak('${w.word.replace(/'/g,'')}')">${ICONS.speak}</button></div>
     <div class="flash-word">${escapeHtml(w.word)}</div><div class="flash-ipa">${escapeHtml(w.ipa)}</div></div>
     <div class="mc-options" id="mc-options">${currentMcOptions.map((o,i)=>`<button class="mc-opt" id="mc-opt-${i}" onclick="answerMC(${i})">${escapeHtml(o.text)}</button>`).join('')}</div>`;
 }
@@ -686,7 +686,7 @@ function answerMC(i){
 }
 function renderTypeEn(el, w){
   el.innerHTML = practiceHeader()+
-    `<div class="card flash" style="min-height:200px;"><div class="flash-ru" style="font-size:30px">${escapeHtml(w.ru.split(';')[0])}</div>
+    `<div class="card flash flash-compact"><div class="flash-ru" style="font-size:30px">${escapeHtml(w.ru.split(';')[0])}</div>
     <div class="flash-ex-ru" style="max-width:440px">${escapeHtml(w.exampleRu)}</div></div>
     <input class="type-input" id="type-input" placeholder="Напиши слово по-английски…" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div class="feedback-row" id="type-feedback"></div>
@@ -709,7 +709,7 @@ function blankOutWord(sentence, word){
 }
 function renderFill(el, w){
   el.innerHTML = practiceHeader()+
-    `<div class="card flash" style="min-height:200px;"><div class="flash-ex" style="font-size:18px;max-width:480px">${blankOutWord(w.exampleEn,w.word)}</div>
+    `<div class="card flash flash-compact"><div class="flash-ex" style="font-size:18px;max-width:480px">${blankOutWord(w.exampleEn,w.word)}</div>
     <div class="flash-ex-ru" style="max-width:480px">${escapeHtml(w.exampleRu)}</div></div>
     <input class="type-input" id="type-input" placeholder="Пропущенное слово…" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div class="feedback-row" id="type-feedback"></div>
@@ -728,7 +728,7 @@ function checkFill(){
 }
 function renderListen(el, w){
   el.innerHTML = practiceHeader()+
-    `<div class="card flash" style="min-height:200px;">
+    `<div class="card flash flash-compact">
       <button class="icon-btn" style="width:60px;height:60px;border-radius:50%;background:var(--accent);color:var(--accent-ink);border:none;" onclick="speak('${w.word.replace(/'/g,'')}')">
       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg></button>
       <div class="flash-hint" style="position:static;margin-top:10px;">Нажми, чтобы прослушать ещё раз</div>
@@ -752,7 +752,7 @@ function checkListen(){
 function renderSpeak(el, w){
   const supported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   el.innerHTML = practiceHeader()+
-    `<div class="card flash" style="min-height:200px;position:relative;"><div style="position:absolute;top:16px;right:16px;"><button class="icon-btn" onclick="speak('${w.word.replace(/'/g,'')}')">${ICONS.speak}</button></div>
+    `<div class="card flash flash-compact" style="position:relative;"><div style="position:absolute;top:16px;right:16px;"><button class="icon-btn" onclick="speak('${w.word.replace(/'/g,'')}')">${ICONS.speak}</button></div>
     <div class="flash-word">${escapeHtml(w.word)}</div><div class="flash-ipa">${escapeHtml(w.ipa)}</div></div>
     ${supported ?
       `<div class="mic-row"><button class="mic-btn" id="mic-btn" onclick="startSpeakCheck()">${ICONS.mic}</button><div class="heard-text" id="heard-text">Нажми и произнеси слово вслух</div></div>`
