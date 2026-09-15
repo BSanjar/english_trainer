@@ -87,9 +87,37 @@ const state = {
   learnQueue: [], learnFlipped: false, learnQueueLoaded: false, learnTodayCompleted: null, learnTodayTarget: null,
   practiceMode: null, practicePool: [], practiceIdx: 0, practiceScore:{correct:0,wrong:0}, practiceDoneSoundPlayed:false,
   bankQuery:'', bankStatus:null, bankPage:1,
+  todayWordSet: null,
 };
 
 function rebuildWordIndex(){ state.wordsById = {}; state.words.forEach(w=>state.wordsById[w.id]=w); }
+
+/* The same word set is shared across all of today's tasks (learn, quiz,
+   type, fill) so a word introduced in one task shows up in the others too,
+   instead of each task picking its own random words. Computed once per
+   session from the SRS due queue (due words first, then new ones, capped
+   to the daily goal) and cached — re-deriving it after every grade would
+   shift the set under the user mid-session. Tomorrow's due queue naturally
+   differs (and resurfaces anything graded "hard" today via its shorter
+   SRS interval), so day-to-day variation falls out of the existing SRS
+   logic for free. */
+async function getTodayWordSet(){
+  if(state.todayWordSet && state.todayWordSet.length) return state.todayWordSet;
+  const goal = state.client.dailyGoal;
+  let ids = [];
+  try{
+    const q = await api('/api/session/queue');
+    ids = q.due.map(w=>w.id).concat(q.new.map(w=>w.id));
+  }catch(e){}
+  let set = ids.map(id=>state.wordsById[id]).filter(Boolean).slice(0, goal);
+  if(set.length < goal){
+    const used = new Set(set.map(w=>w.id));
+    const extra = shuffle(state.words.filter(w=>!used.has(w.id)));
+    set = set.concat(extra.slice(0, goal-set.length));
+  }
+  state.todayWordSet = set;
+  return set;
+}
 
 /* ===== boot ===== */
 async function boot(){
@@ -445,8 +473,8 @@ async function renderLearnSession(el){
     state.learnTodayTarget = lb ? lb.target : state.client.dailyGoal;
   }
   if(state.learnQueue.length===0 && !state.learnQueueLoaded){
-    const q = await api('/api/session/queue');
-    state.learnQueue = shuffleInterleave(q.due, q.new);
+    const words = await getTodayWordSet();
+    state.learnQueue = shuffle(words);
     state.learnQueueLoaded = true;
   }
 
@@ -493,15 +521,6 @@ async function renderLearnSession(el){
   </div>`;
   attachSwipeHandlers(document.getElementById('flash-card'));
 }
-function shuffleInterleave(due, fresh){
-  const out=[]; let di=0, ni=0;
-  while(di<due.length || ni<fresh.length){
-    for(let k=0;k<4 && di<due.length;k++) out.push(due[di++]);
-    if(ni<fresh.length) out.push(fresh[ni++]);
-  }
-  return out;
-}
-
 let dragState = null;
 function attachSwipeHandlers(cardEl){
   if(!cardEl) return;
@@ -555,16 +574,36 @@ function attachSwipeHandlers(cardEl){
   cardEl.addEventListener('pointerup', finish);
   cardEl.addEventListener('pointercancel', finish);
 }
-function showGoalMetModal(){
+/* Shared "task complete" celebration for every block (learn, quiz, type,
+   fill). Figures out, from the authoritative /api/session/today snapshot,
+   whether any other active task still needs doing today — and if this was
+   the last one, swaps the "next task" button for a bigger finish. */
+async function showGoalMetModal(blockId, opts){
   feedbackGoalMet();
-  const nextBlock = BLOCKS[BLOCKS.findIndex(b=>b.id==='learn')+1];
+  const blockDef = BLOCKS.find(b=>b.id===blockId);
+  let today;
+  try{ today = await api('/api/session/today'); }catch(e){ today = state.today; }
+  if(today) state.today = today;
+  const doneMap = {};
+  (today ? today.blocks : []).forEach(b=>{ doneMap[b.block] = b.target>0 && b.completed>=b.target; });
+  const idx = ACTIVE_BLOCKS.findIndex(b=>b.id===blockId);
+  const nextBlock = ACTIVE_BLOCKS.slice(idx+1).concat(ACTIVE_BLOCKS.slice(0,idx)).find(b=>!doneMap[b.id]);
+  const allDone = !nextBlock;
+  if(allDone) confettiBurst(24);
+
+  const primaryBtn = nextBlock
+    ? `<button class="btn btn-primary btn-block" onclick="closeModal();openBlock('${nextBlock.id}');">Следующая задача: ${nextBlock.title} →</button>`
+    : `<button class="btn btn-primary btn-block" onclick="closeModal();location.hash='blocks';">К задачам</button>`;
+
   document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card goal-modal">
-    <div class="big-ic">🎯</div>
-    <div class="flash-word" style="font-size:22px;">Дневная цель выполнена!</div>
-    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">Ты закрыл(а) ${state.learnTodayTarget} слов в «Изучении слов» на сегодня. Можно остановиться или продолжать — как захочешь.</div>
+    <div class="big-ic">${allDone?'🎉':'🎯'}</div>
+    <div class="flash-word" style="font-size:22px;">${allDone?'Все задачи на сегодня выполнены!':'Дневная цель выполнена!'}</div>
+    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">${allDone
+      ? 'Ты закрыл(а) все задачи на сегодня. Отличная работа!'
+      : `Ты закрыл(а) «${blockDef.title}» на сегодня. Можно остановиться или продолжать — как захочешь.`}</div>
     <div class="modal-actions" style="justify-content:center;margin-top:20px;flex-direction:column;">
-      ${nextBlock ? `<button class="btn btn-primary btn-block" onclick="closeModal();openBlock('${nextBlock.id}');">Следующая задача: ${nextBlock.title} →</button>` : ''}
-      <button class="btn btn-outline btn-block" onclick="closeModal();">Продолжать здесь</button>
+      ${primaryBtn}
+      <button class="btn btn-outline btn-block" onclick="closeModal();${opts.secondaryOnClick||''}">${opts.secondaryLabel}</button>
     </div>
   </div></div>`;
 }
@@ -582,15 +621,20 @@ async function gradeLearn(grade){
   state.learnFlipped = false;
   route();
   if(!wasMet && state.learnTodayCompleted >= state.learnTodayTarget){
-    setTimeout(showGoalMetModal, 320);
+    setTimeout(()=>showGoalMetModal('learn', {secondaryLabel:'Продолжать здесь'}), 320);
   }
 }
 
 /* ===== practice (mc / type_en / fill / listen / speak) ===== */
-function buildPracticePool(){
-  let pool = state.words.filter(w=>w.status!=='new');
-  if(pool.length<10) pool = pool.concat(shuffle(state.words).slice(0, 10-pool.length));
-  return shuffle(pool).slice(0,20);
+async function buildPracticePool(){
+  return shuffle(await getTodayWordSet());
+}
+async function restartPracticeRound(){
+  state.practicePool = await buildPracticePool();
+  state.practiceIdx = 0;
+  state.practiceScore = {correct:0,wrong:0};
+  state.practiceDoneSoundPlayed = false;
+  route();
 }
 function currentPracticeWord(){ return state.practicePool[state.practiceIdx]; }
 async function logBlockProgress(block, wordId){
@@ -600,7 +644,9 @@ function nextPracticeItem(block, wordId, correct){
   state.practiceScore[correct?'correct':'wrong']++;
   if(correct) feedbackCorrect(); else feedbackWrong();
   logBlockProgress(block, wordId);
-  setTimeout(()=>{ state.practiceIdx++; route(); }, 700);
+  // Give a longer beat on a wrong answer so the user actually reads and
+  // remembers the correct one before the next item replaces it.
+  setTimeout(()=>{ state.practiceIdx++; route(); }, correct ? 650 : 1900);
 }
 function practiceHeader(){
   return `<div class="practice-head"><button class="btn btn-ghost btn-sm" onclick="location.hash='blocks'">← Задачи</button>
@@ -610,10 +656,8 @@ function practiceDone(){
   return practiceHeader()+`<div class="card session-empty"><div class="big-ic">🏁</div>
     <div style="font-weight:700;font-size:17px;margin-bottom:6px;">Раунд завершён</div>
     <div style="margin-bottom:18px;">Правильно ${state.practiceScore.correct} из ${state.practicePool.length}</div>
-    <div style="display:flex;gap:10px;justify-content:center;">
-      <button class="btn btn-outline" onclick="location.hash='blocks'">К задачам</button>
-      <button class="btn btn-primary" onclick="state.practicePool=buildPracticePool();state.practiceIdx=0;state.practiceScore={correct:0,wrong:0};route();">Ещё раунд</button>
-    </div></div>`;
+    <button class="btn btn-outline" onclick="location.hash='blocks'">К задачам</button>
+    </div>`;
 }
 let currentMcOptions = [];
 function mcOptions(w){
@@ -739,14 +783,18 @@ async function renderPractice(el){
   const mode = currentViewArg();
   if(state.practiceMode!==mode || state.practicePool.length===0){
     state.practiceMode = mode;
-    state.practicePool = buildPracticePool();
+    state.practicePool = await buildPracticePool();
     state.practiceIdx = 0;
     state.practiceScore = {correct:0,wrong:0};
     state.practiceDoneSoundPlayed = false;
   }
   if(state.practiceIdx>=state.practicePool.length){
-    if(!state.practiceDoneSoundPlayed){ state.practiceDoneSoundPlayed = true; feedbackGoalMet(); }
-    el.innerHTML=practiceDone(); return;
+    el.innerHTML=practiceDone();
+    if(!state.practiceDoneSoundPlayed){
+      state.practiceDoneSoundPlayed = true;
+      setTimeout(()=>showGoalMetModal(mode, {secondaryLabel:'Ещё раунд', secondaryOnClick:'restartPracticeRound();'}), 320);
+    }
+    return;
   }
   const w = currentPracticeWord();
   const dispatch = {mc:renderMC, type_en:renderTypeEn, fill:renderFill, listen:renderListen, speak:renderSpeak};
