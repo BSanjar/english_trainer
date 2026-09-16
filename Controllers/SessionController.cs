@@ -60,6 +60,7 @@ public class SessionController : LexiControllerBase
     public async Task<IActionResult> Review([FromBody] ReviewRequest req)
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (client.TrialLocked) return StatusCode(403, new { error = "trial_locked" });
         if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         if (req.Grade is not (Grade.Hard or Grade.Good or Grade.Easy))
             return BadRequest(new { error = "invalid_grade" });
@@ -72,6 +73,7 @@ public class SessionController : LexiControllerBase
 
         await BumpBlockAsync(client.Id, client.Level!, BlockType.Learn, req.WordId, client.DailyGoal);
         await _db.SaveChangesAsync();
+        await CheckTrialLockAsync(client);
 
         return Ok(new { updated.Ivl, updated.Due, status = SrsService.StatusOf(updated) });
     }
@@ -80,12 +82,14 @@ public class SessionController : LexiControllerBase
     public async Task<IActionResult> LogProgress([FromBody] ProgressRequest req)
     {
         if (!TryGetClient(out var client)) return Unauthorized();
+        if (client.TrialLocked) return StatusCode(403, new { error = "trial_locked" });
         if (string.IsNullOrEmpty(client.Level)) return BadRequest(new { error = "level_not_set" });
         if (!BlockType.All.Contains(req.Block) || req.Block == BlockType.Learn)
             return BadRequest(new { error = "invalid_block" });
 
         var activity = await BumpBlockAsync(client.Id, client.Level, req.Block, req.WordId, client.DailyGoal);
         await _db.SaveChangesAsync();
+        await CheckTrialLockAsync(client);
         return Ok(new BlockProgressDto(req.Block, activity.CompletedCount, activity.TargetCount));
     }
 
@@ -122,5 +126,28 @@ public class SessionController : LexiControllerBase
         activity.LastWordId = wordId;
         activity.UpdatedAt = DateTime.UtcNow;
         return activity;
+    }
+
+    /// A trial client (never redeemed a real code) who just finished one
+    /// full daily cycle - every active block at/above its target - gets
+    /// locked out until they enter a code. Clients who've ever redeemed a
+    /// code are never auto-locked again.
+    private async Task CheckTrialLockAsync(Client client)
+    {
+        if (client.CodeRedeemed || client.TrialLocked) return;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var rows = await _db.DailyBlockActivities
+            .Where(a => a.ClientId == client.Id && a.Level == client.Level && a.Date == today)
+            .ToListAsync();
+        var allDone = BlockType.Active.All(b =>
+        {
+            var row = rows.FirstOrDefault(r => r.Block == b);
+            return row != null && row.TargetCount > 0 && row.CompletedCount >= row.TargetCount;
+        });
+        if (allDone)
+        {
+            client.TrialLocked = true;
+            await _db.SaveChangesAsync();
+        }
     }
 }

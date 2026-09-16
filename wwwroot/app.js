@@ -53,6 +53,9 @@ async function api(path, opts={}){
     try{ body = await res.json(); }catch(e){}
     const err = new Error(body.error || res.statusText);
     err.status = res.status; err.body = body;
+    if(res.status===403 && body.error==='trial_locked' && path!=='/api/auth/me'){
+      renderUnlockScreen(false);
+    }
     throw err;
   }
   if(res.status===204) return null;
@@ -104,12 +107,23 @@ function rebuildWordIndex(){ state.wordsById = {}; state.words.forEach(w=>state.
 async function getTodayWordSet(){
   if(state.todayWordSet && state.todayWordSet.length) return state.todayWordSet;
   const goal = state.client.dailyGoal;
-  let ids = [];
+  let due = [], fresh = [];
   try{
     const q = await api('/api/session/queue');
-    ids = q.due.map(w=>w.id).concat(q.new.map(w=>w.id));
+    due = q.due; fresh = q.new; // due is server-sorted soonest-first, i.e. hardest/most-overdue words lead
   }catch(e){}
-  let set = ids.map(id=>state.wordsById[id]).filter(Boolean).slice(0, goal);
+  // A pure "due backlog first" fill starves new words entirely once a user
+  // has enough hard/review words due (they keep resurfacing on short SRS
+  // intervals and can fill every slot forever). Reserve a guaranteed share
+  // for new words so today's set is always new + hard/peeked repeats, not
+  // just repeats.
+  const newQuota = Math.min(fresh.length, Math.max(1, Math.ceil(goal*0.55)));
+  let set = due.slice(0, goal-newQuota).concat(fresh.slice(0, newQuota));
+  if(set.length < goal){
+    const used = new Set(set.map(w=>w.id));
+    set = set.concat(due.filter(w=>!used.has(w.id)), fresh.filter(w=>!used.has(w.id))).slice(0, goal);
+  }
+  set = set.map(w=>state.wordsById[w.id]).filter(Boolean);
   if(set.length < goal){
     const used = new Set(set.map(w=>w.id));
     const extra = shuffle(state.words.filter(w=>!used.has(w.id)));
@@ -122,14 +136,15 @@ async function getTodayWordSet(){
 /* ===== boot ===== */
 async function boot(){
   const token = localStorage.getItem(TOKEN_KEY);
-  if(!token){ renderCodeScreen(); return; }
+  if(!token){ renderTrialSignup(); return; }
   try{
     const me = await api('/api/auth/me');
     state.client = me;
+    if(me.trialLocked){ renderUnlockScreen(false); return; }
     if(!me.level){ renderLevelPicker(); return; }
     await startApp();
   }catch(e){
-    if(e.status===401){ localStorage.removeItem(TOKEN_KEY); renderCodeScreen(); }
+    if(e.status===401){ localStorage.removeItem(TOKEN_KEY); renderTrialSignup(); }
     else { renderFatalError(e); }
   }
 }
@@ -144,40 +159,61 @@ function renderFatalError(e){
 }
 
 /* ===== onboarding ===== */
-function renderCodeScreen(){
+function renderTrialSignup(){
   document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
   document.getElementById('view').className='view';
   document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
     <div class="onboard-logo">${logoSvg(44)}</div>
     <div class="onboard-title">Добро пожаловать в Dari</div>
-    <div class="onboard-sub">Представься и введи одноразовый код, который тебе дал преподаватель</div>
-    <div style="text-align:left;margin-bottom:14px;">
-      <div class="field-label" style="margin-bottom:6px;">Как тебя зовут?</div>
-      <input class="search-input" id="name-input" style="width:100%;" placeholder="Имя" maxlength="60" autofocus>
-    </div>
-    <input class="code-input" id="code-input" maxlength="6" inputmode="numeric" placeholder="000000">
-    <div class="onboard-error" id="code-error"></div>
-    <button class="btn btn-primary btn-block" id="code-submit" style="margin-top:14px;">Войти</button>
+    <div class="onboard-sub">Как тебя зовут? Занятия начнутся сразу — есть бесплатный пробный день.</div>
+    <input class="search-input" id="name-input" style="width:100%;" placeholder="Имя" maxlength="60" autofocus>
+    <div class="onboard-error" id="name-error"></div>
+    <button class="btn btn-primary btn-block" id="name-submit" style="margin-top:14px;">Начать</button>
   </div></div>`;
   const nameInput = document.getElementById('name-input');
-  const input = document.getElementById('code-input');
   const submit = async ()=>{
     const name = nameInput.value.trim();
-    const code = input.value.trim();
-    if(name.length===0){ document.getElementById('code-error').textContent='Укажи имя'; nameInput.focus(); return; }
-    if(code.length!==6){ document.getElementById('code-error').textContent='Код должен содержать 6 цифр'; return; }
+    if(name.length===0){ document.getElementById('name-error').textContent='Укажи имя'; nameInput.focus(); return; }
     try{
-      const res = await api('/api/auth/redeem', {method:'POST', body: JSON.stringify({code, name})});
+      const res = await api('/api/auth/trial', {method:'POST', body: JSON.stringify({name})});
       localStorage.setItem(TOKEN_KEY, res.deviceToken);
       state.client = res.client;
-      if(!res.client.level){ renderLevelPicker(); } else { await startApp(); }
+      renderLevelPicker();
     }catch(e){
-      document.getElementById('code-error').textContent = e.status===400 ? 'Код неверный, уже использован или истёк' : 'Ошибка сети, попробуй ещё раз';
+      document.getElementById('name-error').textContent = 'Ошибка сети, попробуй ещё раз';
     }
   };
-  document.getElementById('code-submit').addEventListener('click', submit);
+  document.getElementById('name-submit').addEventListener('click', submit);
+  nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+}
+
+function renderUnlockScreen(justFinished){
+  document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
+  document.getElementById('view').className='view';
+  document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
+    <div class="onboard-logo">${logoSvg(44)}</div>
+    ${justFinished ? '<div class="big-ic">🎉</div>' : ''}
+    <div class="onboard-title">${justFinished ? 'Пробный день завершён!' : 'Нужен код доступа'}</div>
+    <div class="onboard-sub">${justFinished ? 'Ты прошёл(а) все задачи пробного дня. ' : ''}Чтобы продолжить заниматься с Dari, введи код доступа.</div>
+    <input class="code-input" id="unlock-code-input" maxlength="6" inputmode="numeric" placeholder="000000" autofocus>
+    <div class="onboard-error" id="unlock-error"></div>
+    <button class="btn btn-primary btn-block" id="unlock-submit" style="margin-top:14px;">Разблокировать</button>
+    <div class="field-hint" style="margin-top:18px;">Нет кода? Напиши своему преподавателю, чтобы продолжить занятия.</div>
+  </div></div>`;
+  const input = document.getElementById('unlock-code-input');
+  const submit = async ()=>{
+    const code = input.value.trim();
+    if(code.length!==6){ document.getElementById('unlock-error').textContent='Код должен содержать 6 цифр'; return; }
+    try{
+      const res = await api('/api/auth/unlock', {method:'POST', body: JSON.stringify({code})});
+      state.client = res;
+      await startApp();
+    }catch(e){
+      document.getElementById('unlock-error').textContent = e.status===400 ? 'Код неверный, уже использован или истёк' : 'Ошибка сети, попробуй ещё раз';
+    }
+  };
+  document.getElementById('unlock-submit').addEventListener('click', submit);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
-  nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') input.focus(); });
 }
 
 function renderLevelPicker(){
@@ -590,6 +626,17 @@ async function showGoalMetModal(blockId, opts){
   const nextBlock = ACTIVE_BLOCKS.slice(idx+1).concat(ACTIVE_BLOCKS.slice(0,idx)).find(b=>!doneMap[b.id]);
   const allDone = !nextBlock;
   if(allDone) confettiBurst(24);
+
+  // Finishing the last task of the day is exactly when a trial client gets
+  // locked out server-side (see CheckTrialLockAsync) - pick that up here
+  // and hand off to the unlock screen instead of the normal celebration.
+  if(allDone){
+    try{
+      const me = await api('/api/auth/me');
+      state.client = me;
+      if(me.trialLocked){ renderUnlockScreen(true); return; }
+    }catch(e){}
+  }
 
   const primaryBtn = nextBlock
     ? `<button class="btn btn-primary btn-block" onclick="closeModal();openBlock('${nextBlock.id}');">Следующая задача: ${nextBlock.title} →</button>`
