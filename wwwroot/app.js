@@ -54,7 +54,8 @@ async function api(path, opts={}){
     const err = new Error(body.error || res.statusText);
     err.status = res.status; err.body = body;
     if(res.status===403 && body.error==='trial_locked' && path!=='/api/auth/me'){
-      renderUnlockScreen(false);
+      if(state.client) state.client.trialLocked = true;
+      showUnlockModal();
     }
     throw err;
   }
@@ -140,8 +141,9 @@ async function boot(){
   try{
     const me = await api('/api/auth/me');
     state.client = me;
-    if(me.trialLocked){ renderUnlockScreen(false); return; }
     if(!me.level){ renderLevelPicker(); return; }
+    // A trial-locked client still gets the normal app shell (home, nav) -
+    // only opening a task or Settings is gated; see route()/openBlock().
     await startApp();
   }catch(e){
     if(e.status===401){ localStorage.removeItem(TOKEN_KEY); renderTrialSignup(); }
@@ -187,32 +189,39 @@ function renderTrialSignup(){
   nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
 }
 
-function renderUnlockScreen(justFinished){
-  document.getElementById('sidebar').style.display='none'; document.getElementById('tabbar').style.display='none';
-  document.getElementById('view').className='view';
-  document.getElementById('view').innerHTML = `<div class="onboard-wrap"><div class="card onboard-card">
+/* Trial-locked clients keep the normal app shell (home, nav all work) -
+   this modal is what actually gates them, popped up over whatever they
+   were trying to do (open a task, open Settings) rather than taking over
+   the whole screen. */
+function showUnlockModal(){
+  if(document.getElementById('unlock-modal-code')) return; // already showing
+  document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card goal-modal">
     <div class="onboard-logo">${logoSvg(44)}</div>
-    ${justFinished ? '<div class="big-ic">🎉</div>' : ''}
-    <div class="onboard-title">${justFinished ? 'Пробный день завершён!' : 'Нужен код доступа'}</div>
-    <div class="onboard-sub">${justFinished ? 'Ты прошёл(а) все задачи пробного дня. ' : ''}Чтобы продолжить заниматься с Dari, введи код доступа.</div>
-    <input class="code-input" id="unlock-code-input" maxlength="6" inputmode="numeric" placeholder="000000" autofocus>
-    <div class="onboard-error" id="unlock-error"></div>
-    <button class="btn btn-primary btn-block" id="unlock-submit" style="margin-top:14px;">Разблокировать</button>
-    <div class="field-hint" style="margin-top:18px;">Нет кода? Напиши своему преподавателю, чтобы продолжить занятия.</div>
+    <div class="flash-word" style="font-size:20px;">Пробный день завершён</div>
+    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">Чтобы открыть эту функцию, введи код доступа, который даст преподаватель.</div>
+    <input class="code-input" id="unlock-modal-code" maxlength="6" inputmode="numeric" placeholder="000000" style="margin-top:16px;" autofocus>
+    <div class="onboard-error" id="unlock-modal-error"></div>
+    <div class="modal-actions" style="justify-content:center;margin-top:16px;flex-direction:column;">
+      <button class="btn btn-primary btn-block" id="unlock-modal-submit">Разблокировать</button>
+      <button class="btn btn-outline btn-block" onclick="closeModal();">Позже</button>
+    </div>
+    <div class="field-hint" style="margin-top:14px;">Нет кода? Напиши своему преподавателю, чтобы продолжить занятия.</div>
   </div></div>`;
-  const input = document.getElementById('unlock-code-input');
+  const input = document.getElementById('unlock-modal-code');
   const submit = async ()=>{
     const code = input.value.trim();
-    if(code.length!==6){ document.getElementById('unlock-error').textContent='Код должен содержать 6 цифр'; return; }
+    if(code.length!==6){ document.getElementById('unlock-modal-error').textContent='Код должен содержать 6 цифр'; return; }
     try{
       const res = await api('/api/auth/unlock', {method:'POST', body: JSON.stringify({code})});
       state.client = res;
-      await startApp();
+      closeModal();
+      toast('Разблокировано! Можно продолжать 🎉');
+      route();
     }catch(e){
-      document.getElementById('unlock-error').textContent = e.status===400 ? 'Код неверный, уже использован или истёк' : 'Ошибка сети, попробуй ещё раз';
+      document.getElementById('unlock-modal-error').textContent = e.status===400 ? 'Код неверный, уже использован или истёк' : 'Ошибка сети, попробуй ещё раз';
     }
   };
-  document.getElementById('unlock-submit').addEventListener('click', submit);
+  document.getElementById('unlock-modal-submit').addEventListener('click', submit);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
 }
 
@@ -287,13 +296,13 @@ function renderShell(){
   document.getElementById('tabbar').style.display = '';
   document.getElementById('sidebar').innerHTML =
     '<div class="brand"><div class="brand-mark">'+logoSvg(34)+'</div><div class="brand-name">Dari</div></div>'+
-    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}</span></button>`).join('')+'</div>'+
+    '<div class="nav">'+NAV.map(n=>`<button class="nav-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label} ${n.id==='blocks'?'на сегодня':''}${state.client?.trialLocked && n.id==='settings'?' 🔒':''}</span></button>`).join('')+'</div>'+
     '<div class="nav-spacer"></div>'+
     '<div class="sidebar-foot">'+escapeHtml(state.client?.name||'')+(state.client?.name?' · ':'')+'Уровень '+(state.client?.level||'—')+'</div>';
   document.getElementById('tabbar').innerHTML = NAV.map(n=>
     n.main
       ? `<button class="tab-item tab-item-main${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')"><span class="tab-main-circle">${ICONS[n.icon]}</span><span>${n.label}</span></button>`
-      : `<button class="tab-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label}</span></button>`
+      : `<button class="tab-item${navViewId===n.id?' active':''}" onclick="navTo('${n.id}')">${ICONS[n.icon]}<span>${n.label}${state.client?.trialLocked && n.id==='settings'?' 🔒':''}</span></button>`
   ).join('');
 }
 function navTo(id){
@@ -302,7 +311,13 @@ function navTo(id){
   location.hash = id;
 }
 
+const GATED_VIEWS = ['session','practice','settings','bank','stats'];
 async function route(){
+  const view0 = currentViewId();
+  if(state.client?.trialLocked && GATED_VIEWS.includes(view0)){
+    showUnlockModal();
+    if(location.hash.replace('#','').split('/')[0]!=='home'){ location.hash = 'home'; return; }
+  }
   renderShell();
   const view = currentViewId();
   const el = document.getElementById('view');
@@ -350,6 +365,16 @@ function paintHome(el, today){
       <div class="compact-stat"><div class="cs-num">${remaining}</div><div class="cs-label">Осталось</div></div>
       <div class="compact-stat"><div class="cs-num">${mastered}</div><div class="cs-label">Освоено твёрдо</div></div>
     </div>
+    ${state.client.trialLocked ? `
+    <div class="card home-tasks-card trial-locked-card">
+      <div class="home-tasks-head">
+        <div>
+          <div class="section-title" style="margin:0;">Пробный день завершён 🎓</div>
+          <div class="field-hint" style="margin:3px 0 0;">Можешь пройти задачи ещё раз или вернуться завтра. Чтобы снова открыть задачи и настройки — введи код доступа.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="showUnlockModal()">Ввести код</button>
+      </div>
+    </div>` : `
     <div class="card home-tasks-card">
       <div class="home-tasks-head">
         <div>
@@ -358,7 +383,7 @@ function paintHome(el, today){
         </div>
         <button class="btn btn-primary btn-sm" onclick="location.hash='blocks'">Все задачи →</button>
       </div>
-    </div>
+    </div>`}
     <div class="section-title" style="margin-top:24px;">Как устроена Dari</div>
     <div class="info-grid">
       <div class="card info-card">
@@ -390,7 +415,7 @@ function blockGridHtml(today){
     return `<div class="card block-card${done?' block-done':''}" onclick="openBlock('${b.id}')">
       <div class="block-ic">${b.ic}</div>
       <div class="block-body">
-        <div class="block-title"><span class="block-num">${b.num}.</span>${b.title}${done?' ✓':''}</div>
+        <div class="block-title"><span class="block-num">${b.num}.</span>${b.title}${done?' ✓':''}${state.client.trialLocked?' <span class="soon-badge">🔒 код</span>':''}</div>
         <div class="block-desc">${b.desc}</div>
         <div class="block-progress">
           <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
@@ -628,29 +653,33 @@ async function showGoalMetModal(blockId, opts){
   if(allDone) confettiBurst(24);
 
   // Finishing the last task of the day is exactly when a trial client gets
-  // locked out server-side (see CheckTrialLockAsync) - pick that up here
-  // and hand off to the unlock screen instead of the normal celebration.
+  // locked out server-side (see CheckTrialLockAsync). Pick that up here and
+  // fold it into the same celebration - home and nav stay usable, only
+  // opening a task or Settings will actually prompt for a code from here on.
+  let justLocked = false;
   if(allDone){
     try{
       const me = await api('/api/auth/me');
       state.client = me;
-      if(me.trialLocked){ renderUnlockScreen(true); return; }
+      justLocked = me.trialLocked;
     }catch(e){}
   }
 
   const primaryBtn = nextBlock
     ? `<button class="btn btn-primary btn-block" onclick="closeModal();openBlock('${nextBlock.id}');">Следующая задача: ${nextBlock.title} →</button>`
-    : `<button class="btn btn-primary btn-block" onclick="closeModal();location.hash='blocks';">К задачам</button>`;
+    : `<button class="btn btn-primary btn-block" onclick="closeModal();location.hash='home';">На главную</button>`;
 
   document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal card goal-modal">
     <div class="big-ic">${allDone?'🎉':'🎯'}</div>
     <div class="flash-word" style="font-size:22px;">${allDone?'Все задачи на сегодня выполнены!':'Дневная цель выполнена!'}</div>
-    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">${allDone
-      ? 'Ты закрыл(а) все задачи на сегодня. Отличная работа!'
-      : `Ты закрыл(а) «${blockDef.title}» на сегодня. Можно остановиться или продолжать — как захочешь.`}</div>
+    <div class="flash-ex-ru" style="max-width:none;margin-top:8px;">${justLocked
+      ? 'Ты прошёл(а) весь пробный день! Можешь пройти ещё раз или вернуться завтра — а чтобы открыть все функции, понадобится код доступа от преподавателя.'
+      : allDone
+        ? 'Ты закрыл(а) все задачи на сегодня. Отличная работа!'
+        : `Ты закрыл(а) «${blockDef.title}» на сегодня. Можно остановиться или продолжать — как захочешь.`}</div>
     <div class="modal-actions" style="justify-content:center;margin-top:20px;flex-direction:column;">
       ${primaryBtn}
-      <button class="btn btn-outline btn-block" onclick="closeModal();${opts.secondaryOnClick||''}">${opts.secondaryLabel}</button>
+      ${justLocked ? '' : `<button class="btn btn-outline btn-block" onclick="closeModal();${opts.secondaryOnClick||''}">${opts.secondaryLabel}</button>`}
     </div>
   </div></div>`;
 }
