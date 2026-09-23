@@ -695,9 +695,14 @@ async function gradeLearn(grade){
   const wasMet = state.learnTodayCompleted >= state.learnTodayTarget;
   state.learnTodayCompleted++;
   state.learnFlipped = false;
+  const justMet = !wasMet && state.learnTodayCompleted >= state.learnTodayTarget;
   route();
-  if(!wasMet && state.learnTodayCompleted >= state.learnTodayTarget){
-    setTimeout(()=>showGoalMetModal('learn', {secondaryLabel:'Продолжать здесь'}), 320);
+  if(justMet){
+    // No artificial delay here: route() just rendered whatever comes after
+    // the last card (next repeat, or the empty state) - pop the modal on
+    // top of it immediately, instead of leaving that in view on its own
+    // for a beat first, which read as "it finished on the NEXT card".
+    showGoalMetModal('learn', {secondaryLabel:'Продолжать здесь'});
   }
 }
 
@@ -868,7 +873,10 @@ async function renderPractice(el){
     el.innerHTML=practiceDone();
     if(!state.practiceDoneSoundPlayed){
       state.practiceDoneSoundPlayed = true;
-      setTimeout(()=>showGoalMetModal(mode, {secondaryLabel:'Ещё раунд', secondaryOnClick:'restartPracticeRound();'}), 320);
+      // No delay: show the modal the instant the round-complete screen
+      // renders, so it doesn't sit alone for a beat looking "already done"
+      // while the user is still mentally on the last answered card.
+      showGoalMetModal(mode, {secondaryLabel:'Ещё раунд', secondaryOnClick:'restartPracticeRound();'});
     }
     return;
   }

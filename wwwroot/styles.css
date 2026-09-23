@@ -51,7 +51,7 @@ html,body{margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%
 body{background:var(--bg);color:var(--ink);font-family:var(--font-body);}
 .app{display:flex;min-height:100vh;background:var(--bg);color:var(--ink);}
 ::selection{background:var(--accent-soft);color:var(--ink);}
-button{font-family:inherit;}
+button{font-family:inherit;color:inherit;}
 a{color:inherit;}
 h1,h2,h3{text-wrap:balance;margin:0;}
 ::-webkit-scrollbar{width:10px;height:10px;}
